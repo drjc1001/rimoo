@@ -2,13 +2,15 @@
   "name": "rimoo",
   "version": "0.1.0",
   "description": "Discover the engineering habits hidden inside your AI coding history. Runs locally on your Claude Code history.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "rimoo": "./dist/cli.js"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18"
