@@ -1,7 +1,7 @@
 {
   "name": "rimoo",
   "version": "0.1.0",
-  "description": "Remember how you work. Analyze your Claude Code history locally and discover the working patterns hidden in it.",
+  "description": "Discover the engineering habits hidden inside your AI coding history. Runs locally on your Claude Code history.",
   "type": "module",
   "bin": {
     "rimoo": "./dist/cli.js"

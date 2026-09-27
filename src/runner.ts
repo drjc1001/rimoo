@@ -31,7 +31,7 @@ export const MAX_CONCURRENCY = 4;
 export const LARGE_HISTORY_TOKENS = 2_000_000;
 export const LARGE_HISTORY_CHUNKS = 40;
 
-/** Replaces Claude Code's own system prompt, so a call carries about 1,700 tokens instead of 24,000. */
+/** Replaces Claude Code's own system prompt, so a call carries a few hundred tokens instead of 24,000. */
 export const SYSTEM_PROMPT =
   "You are reading one developer's own messages to find their working habits. Reply with JSON only, exactly in the shape the message asks for.";
 
@@ -222,15 +222,15 @@ interface Spawned {
   stderr: string;
 }
 
-function run(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv): Promise<Spawned> {
+function run(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv, cwd: string): Promise<Spawned> {
   return new Promise((resolve, reject) => {
     // npm puts a .cmd shim on Windows, which only runs through the shell; quote for cmd.exe so the empty
     // --tools value and the system prompt's spaces survive. (Not yet tried on a real Windows machine.)
     const shell = /\.cmd$/i.test(cmd);
     const q = (a: string): string => `"${a.replace(/"/g, '""')}"`;
     const child = shell
-      ? spawn(q(cmd), args.map(q), { env, stdio: ['pipe', 'pipe', 'pipe'], shell: true })
-      : spawn(cmd, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+      ? spawn(q(cmd), args.map(q), { env, cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: true })
+      : spawn(cmd, args, { env, cwd, stdio: ['pipe', 'pipe', 'pipe'] });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     child.stdout.on('data', (b: Buffer) => out.push(b));
@@ -298,6 +298,9 @@ export async function callClaude(opts: CallClaudeOptions): Promise<ClaudeReply> 
   await writeFile(mcpConfig, '{"mcpServers":{}}\n', 'utf8');
   const args = [
     '-p',
+    // No user or project CLAUDE.md: the user's own rules must not steer the search for them (T-011).
+    '--setting-sources',
+    '',
     '--output-format',
     'json',
     '--system-prompt',
@@ -313,7 +316,10 @@ export async function callClaude(opts: CallClaudeOptions): Promise<ClaudeReply> 
   const env = { ...(opts.env ?? process.env) };
   delete env.CLAUDECODE; // started from inside Claude Code, the child would otherwise see itself as nested
   const started = Date.now();
-  const res = await run(claude, args, prompt, env);
+  // An empty working directory, so no project CLAUDE.md or settings of the caller's own folder come along.
+  const cwd = path.join(outDir, 'claude-cwd');
+  await mkdir(cwd, { recursive: true });
+  const res = await run(claude, args, prompt, env, cwd);
 
   let reply: Record<string, unknown>;
   try {

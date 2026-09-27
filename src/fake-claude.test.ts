@@ -38,7 +38,7 @@ process.stdin.on('end', () => {
   }
   if (!merge && process.env.FAKE_CLAUDE_LOG) {
     fs.appendFileSync(process.env.FAKE_CLAUDE_LOG, JSON.stringify({
-      part, args: process.argv.slice(2), claudecode: process.env.CLAUDECODE ?? null, stdinChars: input.length,
+      part, args: process.argv.slice(2), claudecode: process.env.CLAUDECODE ?? null, stdinChars: input.length, cwd: process.cwd(),
     }) + '\\n');
   }
   let mode = process.env.FAKE_CLAUDE_MODE || 'ok';
@@ -108,6 +108,7 @@ export interface FakeCall {
   args: string[];
   claudecode: string | null;
   stdinChars: number;
+  cwd: string;
 }
 
 export async function readCalls(log: string): Promise<FakeCall[]> {

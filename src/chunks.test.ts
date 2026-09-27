@@ -218,7 +218,7 @@ test('writeChunks: prompt and data files per chunk, a manifest, old parts cleare
     assert.equal(m.estimate.calls, 2);
     assert.equal(m.estimate.promptTokens, m.chunks[0]!.tokens + m.chunks[1]!.tokens);
     assert.equal(m.estimate.outputTokens, Math.round(m.estimate.promptTokens * 0.45));
-    assert.equal(m.estimate.totalTokens, m.estimate.promptTokens + 2 * 1_700 + m.estimate.outputTokens);
+    assert.equal(m.estimate.totalTokens, m.estimate.promptTokens + 2 * 500 + m.estimate.outputTokens);
     assert.match(promptText, /This is part 1: 2 messages/);
 
     // Every id quoted in the prompt's data section is a row of the matching chunk file.
@@ -273,7 +273,7 @@ test('writeChunks: with --sample the manifest costs the whole run as well as the
     assert.equal(m.estimate.calls, 1);
     assert.equal(m.estimateFull.calls, 2);
     assert.ok(m.estimateFull.promptTokens > m.estimate.promptTokens);
-    assert.equal(m.estimateFull.totalTokens, m.estimateFull.promptTokens + 2 * 1_700 + m.estimateFull.outputTokens);
+    assert.equal(m.estimateFull.totalTokens, m.estimateFull.promptTokens + 2 * 500 + m.estimateFull.outputTokens);
     assert.deepEqual(await readdir(path.join(dir, 'prompts')), ['001.md']);
   } finally {
     await rm(dir, { recursive: true, force: true });

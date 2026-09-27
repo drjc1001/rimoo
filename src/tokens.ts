@@ -19,9 +19,10 @@ export const OUTPUT_PER_INPUT = 0.45;
 /**
  * What one `claude -p` call carries before the prompt itself. On a default Claude Code setup that is
  * about 24,000 (its own system prompt and tool definitions). Rimoo calls it with a custom system prompt,
- * no tools and no MCP servers, which measured 1,659 on 2026-09-27 (custom system prompt, no tools, no MCP).
+ * no tools, no MCP servers and `--setting-sources ''` (no CLAUDE.md of the user's own), which measured
+ * 446 tokens on 2026-09-27; without that last flag it was 1,659, most of it the author's own CLAUDE.md.
  */
-export const CALL_OVERHEAD_TOKENS = 1_700;
+export const CALL_OVERHEAD_TOKENS = 500;
 
 const CJK = /[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/u;
 
