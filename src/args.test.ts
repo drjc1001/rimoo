@@ -178,3 +178,9 @@ test('main: run flags reach claude (--yes, --model, --concurrency), --prepare-on
     await rm(fake.dir, { recursive: true, force: true });
   }
 });
+
+test('parseArgs: --allow-paths is a flag, listed in the help', () => {
+  assert.deepEqual(parseArgs(['analyze', '--allow-paths']), { command: 'analyze', options: { 'allow-paths': true }, errors: [] });
+  assert.deepEqual(parseArgs(['analyze', '--allow-paths=yes']).errors, ['Option --allow-paths takes no value']);
+  assert.ok(HELP.includes('--allow-paths'));
+});

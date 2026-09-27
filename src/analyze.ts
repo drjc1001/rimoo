@@ -22,7 +22,8 @@ import { findClaude, finishedChunk, runAll } from './runner.ts';
 import { estimateChunkTokens } from './tokens.ts';
 import { DEFAULT_SIMILARITY, forExport, groupRepeated } from './repeated.ts';
 import { planMerge, runMerge, type Merged } from './merge.ts';
-import { formatTopRules, writeExports } from './exports.ts';
+import { formatGate, formatTopRules, writeExports, type ExportFile } from './exports.ts';
+import { projectNames, type Hit } from './privacy.ts';
 
 export interface AnalyzeOptions {
   historyPath?: string | undefined;
@@ -47,6 +48,8 @@ export interface AnalyzeOptions {
   force?: boolean | undefined;
   /** Passed to `claude --model` as is. */
   model?: string | undefined;
+  /** Keep file paths in CLAUDE.md, SKILL.md, workstyle.json and share.txt. */
+  allowPaths?: boolean | undefined;
   /**
    * Where the y/N answer is read from. Without it (a caller that wired no input) analyze stops after
    * preparing, as with prepareOnly.
@@ -186,7 +189,7 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
     return mergeAndExport(claude, approved);
   }
 
-  /** Fold the findings into rules and write the four exports. Returns the exit code; adds the exports to `saved`. */
+  /** Fold the findings into rules and write the five exports. Returns the exit code; adds the exports to `saved`. */
   async function mergeAndExport(claude: string, approved: boolean): Promise<number> {
     const plan = await planMerge({ outDir, manifest, force: opts.force });
     if (plan.findings.length === 0) {
@@ -229,8 +232,14 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
       opts.stdout(formatMergeTotal(merged, false));
     }
     const input = { merged, stats };
-    const files = await writeExports(outDir, input);
+    const removed: { file: ExportFile; hits: Hit[] }[] = [];
+    const files = await writeExports(outDir, input, {
+      allowPaths: opts.allowPaths,
+      names: projectNames(stats.perProject.map((p) => p.project)),
+      onRemoved: (file, hits) => removed.push({ file, hits }),
+    });
     opts.stdout(formatTopRules(input) + '\n');
+    if (removed.length > 0) opts.stdout(formatGate(removed) + '\n');
     saved.push(...files.map(display));
     return 0;
   }

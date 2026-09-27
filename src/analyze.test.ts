@@ -151,7 +151,7 @@ test('runAnalyze --yes: runs every chunk, prints progress and totals, saves find
     assert.doesNotMatch(out, /--sample/);
     assert.match(
       out,
-      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md and rimoo-out\/workstyle\.json\n$/,
+      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json and rimoo-out\/share\.txt\n$/,
     );
     assert.deepEqual((await readCalls(log)).map((x) => x.part), [1, 2, 3]);
     const files = (await readdir(path.join(dir, 'rimoo-out', 'findings'))).sort();
@@ -292,7 +292,7 @@ test('runAnalyze: chunks done → merge → four exports, the §8 summary and Sa
     assert.match(out, /\n6\. 不要客套話。（出現於 1 段、2 則）\n\nSaved /);
     assert.match(
       out,
-      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md and rimoo-out\/workstyle\.json\n$/,
+      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json and rimoo-out\/share\.txt\n$/,
     );
     const o = path.join(dir, 'rimoo-out');
     const [report, claudeMd, skill, workstyle] = await Promise.all(

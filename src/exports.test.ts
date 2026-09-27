@@ -5,19 +5,24 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   EXPORT_FILES,
+  formatGate,
   formatTopRules,
+  gate,
   isPortable,
   renderClaudeMd,
   renderReport,
+  renderShare,
   renderSkillMd,
   renderWorkstyle,
   rulesLang,
   skillLine,
   writeExports,
+  type ExportFile,
   type ExportInput,
 } from './exports.ts';
 import type { Merged, MergedRule } from './merge.ts';
 import { CATEGORIES, type Category, type Confidence } from './runner.ts';
+import { formatRemoved, type Hit } from './privacy.ts';
 
 let k = 0;
 function rule(category: Category, text: string, confidence: Confidence, frequency: number, chunks: number, over: Partial<MergedRule> = {}): MergedRule {
@@ -177,4 +182,106 @@ test('writeExports: the four files, quotes only in report.md', async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('share.txt: prompts, projects, the top five portable rules by title, the footer; English wording for English rules', () => {
+  assert.equal(
+    renderShare(input()),
+    [
+      '我跟 AI 寫程式的習慣',
+      '',
+      '分析了 24,045 則訊息',
+      '61 個專案',
+      '',
+      '最常出現的習慣：',
+      '• 短句1',
+      '• 短句2',
+      '• 短句3',
+      '• 短句6',
+      '• 短句7',
+      '',
+      '用 Rimoo 整理：npx rimoo analyze',
+      '',
+    ].join('\n'),
+  );
+  const m = merged();
+  m.rules = m.rules.map((r, i) => ({ ...r, rule: `Rule number ${i + 1}.`, title: i === 0 ? 'Result first' : null }));
+  const en = renderShare({ merged: m, stats: { prompts: 1, projects: 1 } });
+  assert.equal(
+    en,
+    'My AI coding workstyle\n\n1 prompt analyzed\n1 project\n\nTop patterns:\n• Result first\n• Rule number 2\n• Rule number 3\n• Rule number 6\n• Rule number 7\n\nFound with Rimoo — npx rimoo analyze\n',
+  );
+  const none = renderShare({ ...input(), merged: { ...merged(), rules: [] } });
+  assert.doesNotMatch(none, /最常出現|•/);
+});
+
+/** A rule carrying a fake key, a path, an email, a URL and a phone number, ranked first. */
+function leaky(): ExportInput {
+  const m = merged();
+  const text = '金鑰 sk-abcdefghijklmnop1234 放 /data/repos/secret-app，寄 me@corp.example，看 https://corp.example/wiki，打 0912-345-678';
+  m.rules[0] = { ...m.rules[0]!, rule: text, title: '別放 /home/me/.env' };
+  return { ...input(), merged: m };
+}
+
+test('privacy gate: each file removed as its policy says, written anyway, lines reported where they are', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'rimoo-gate-'));
+  try {
+    const removed: { file: ExportFile; hits: Hit[] }[] = [];
+    const files = await writeExports(dir, leaky(), { onRemoved: (file, hits) => removed.push({ file, hits }) });
+    const text = Object.fromEntries(await Promise.all(files.map(async (f) => [path.basename(f), await readFile(f, 'utf8')] as const)));
+    const kindsOf = (file: string): string[] => removed.find((r) => r.file === file)?.hits.map((h) => h.kind) ?? [];
+
+    // report.md keeps the user's own words: only the key goes.
+    assert.ok(!text['report.md']!.includes('sk-abcdefghijklmnop1234'));
+    for (const kept of ['/data/repos/secret-app', 'me@corp.example', 'https://corp.example/wiki', '0912-345-678']) assert.ok(text['report.md']!.includes(kept), kept);
+    assert.deepEqual([...new Set(kindsOf('report.md'))], ['secret']);
+
+    // The shared files lose all five.
+    for (const f of ['CLAUDE.md', 'SKILL.md', 'workstyle.json', 'share.txt']) {
+      for (const leak of ['sk-abcdefghijklmnop1234', '/data/repos', '/home/me', 'me@corp.example', 'corp.example/wiki', '0912-345-678']) {
+        assert.ok(!text[f]!.includes(leak), `${f}: ${leak}`);
+      }
+      assert.ok(text[f]!.includes('[removed]'), f);
+    }
+    assert.deepEqual([...new Set(kindsOf('CLAUDE.md'))].sort(), ['email', 'path', 'phone', 'secret', 'url']);
+    assert.deepEqual(kindsOf('share.txt'), ['path']); // share.txt shows the title only
+    assert.equal(JSON.parse(text['workstyle.json']!).rules[0].rule, '金鑰 [removed] 放 [removed]，寄 [removed]，看 [removed]，打 [removed]');
+
+    // The reported line is the line the removal is on.
+    for (const { file, hits } of removed) {
+      const lines = text[file]!.split('\n');
+      for (const h of hits) assert.ok(lines[h.line - 1]!.includes('[removed]'), `${file} line ${h.line}`);
+    }
+    const claudeLine = text['CLAUDE.md']!.split('\n').findIndex((l) => l.startsWith('- 金鑰')) + 1;
+    assert.equal(
+      formatGate(removed.filter((r) => r.file === 'CLAUDE.md')),
+      `  Removed from CLAUDE.md: 1 file path (line ${claudeLine}), 1 email address (line ${claudeLine}), 1 URL (line ${claudeLine}), 1 phone number (line ${claudeLine}), 1 key or token (line ${claudeLine}). Pass --allow-paths to keep paths and project names.\n`,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('privacy gate: --allow-paths keeps paths and only paths; clean rules call nothing', async () => {
+  const { text, hits } = gate('SKILL.md', renderSkillMd(leaky()), true);
+  assert.ok(text.includes('/data/repos/secret-app'));
+  assert.ok(text.includes('/home/me/.env'));
+  assert.ok(!text.includes('me@corp.example'));
+  assert.ok(!hits.some((h) => h.kind === 'path'));
+  assert.doesNotMatch(formatRemoved('SKILL.md', hits), /allow-paths/);
+  let called = 0;
+  const dir = await mkdtemp(path.join(tmpdir(), 'rimoo-gate-'));
+  try {
+    await writeExports(dir, input(), { onRemoved: () => called++ });
+    assert.equal(called, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('gate: project names are removed from CLAUDE.md but kept in report.md', () => {
+  const names = ['toy-app'];
+  assert.equal(gate('CLAUDE.md', '- reuse the toy-app layout\n', false, names).text, '- reuse the [removed] layout\n');
+  assert.equal(gate('report.md', '- reuse the toy-app layout\n', false, names).text, '- reuse the toy-app layout\n');
+  assert.equal(gate('CLAUDE.md', '- reuse the toy-app layout\n', true, names).hits.length, 0);
 });
