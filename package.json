@@ -2,13 +2,32 @@
   "name": "rimoo",
   "version": "0.1.0",
   "description": "Discover the engineering habits hidden inside your AI coding history. Runs locally on your Claude Code history.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/drjc1001/rimoo.git"
+  },
+  "homepage": "https://github.com/drjc1001/rimoo#readme",
+  "bugs": {
+    "url": "https://github.com/drjc1001/rimoo/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "cli",
+    "developer-tools",
+    "ai-coding",
+    "claude-md",
+    "workstyle"
+  ],
   "type": "module",
   "bin": {
     "rimoo": "./dist/cli.js"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18"

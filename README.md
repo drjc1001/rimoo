@@ -108,3 +108,7 @@ Options:
 ## Status
 
 Early version, Claude Code only. Cursor, Codex and others later.
+
+## License
+
+MIT.
