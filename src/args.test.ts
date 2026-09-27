@@ -4,6 +4,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { HELP, main, parseArgs } from './args.ts';
+import { Readable } from 'node:stream';
+import { makeFakeClaude, readCalls } from './fake-claude.test.ts';
 
 test('parseArgs: command, --key value, --key=value, help', () => {
   assert.deepEqual(parseArgs(['analyze']), { command: 'analyze', options: {}, errors: [] });
@@ -116,5 +118,63 @@ test('main: chunk flags reach manifest.json', async () => {
     assert.equal(m.chunks.length, 1);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('parseArgs: --prepare-only, --yes and --force are flags that take no value', () => {
+  assert.deepEqual(parseArgs(['analyze', '--prepare-only', '--yes', '--force', '--model', 'opus', '--concurrency=2']), {
+    command: 'analyze',
+    options: { 'prepare-only': true, yes: true, force: true, model: 'opus', concurrency: '2' },
+    errors: [],
+  });
+  assert.deepEqual(parseArgs(['analyze', '--yes=1']).errors, ['Option --yes takes no value']);
+  assert.deepEqual(parseArgs(['analyze', '--model']).errors, ['Option --model needs a value']);
+  for (const flag of ['--prepare-only', '--yes', '--concurrency <n>', '--force', '--model <name>'])
+    assert.ok(HELP.includes(flag), flag);
+});
+
+test('main: --concurrency must be a whole number from 1 to 4, otherwise exit 2', async () => {
+  for (const bad of ['5', '0', '1.5', 'two']) {
+    const err: string[] = [];
+    const code = await main(['analyze', '--concurrency', bad, '--history', '/nonexistent'], {
+      stdout: () => {},
+      stderr: (t) => err.push(t),
+    });
+    assert.equal(code, 2, bad);
+    assert.match(err.join(''), new RegExp(`--concurrency must be a whole number from 1 to 4, got: ${bad}`));
+  }
+});
+
+test('main: run flags reach claude (--yes, --model, --concurrency), --prepare-only stops before it', {
+  skip: process.platform === 'win32' ? 'the fake claude is a POSIX script' : false,
+}, async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'rimoo-'));
+  const fake = await makeFakeClaude();
+  try {
+    const file = path.join(dir, 'h.jsonl');
+    const lines = [1, 2, 3].map((i) =>
+      JSON.stringify({ display: `instruction number ${i} for the toy app`, timestamp: Date.UTC(2026, 6, 10 + i, 12), project: '/r/toy-app' }),
+    );
+    await writeFile(file, lines.join('\n') + '\n');
+    const io = { stdout: () => {}, stderr: () => {}, cwd: dir, env: { PATH: fake.dir, FAKE_CLAUDE_LOG: fake.log } };
+    const stdin = () => Object.assign(Readable.from([]), { isTTY: false });
+    assert.equal(await main(['analyze', '--history', file, '--chunk-size', '2', '--prepare-only'], { ...io, stdin: stdin() }), 0);
+    assert.deepEqual(await readCalls(fake.log), []);
+    assert.equal(await main(['analyze', '--history', file, '--chunk-size', '2'], { ...io, stdin: stdin() }), 2);
+    assert.deepEqual(await readCalls(fake.log), []);
+    const code = await main(
+      ['analyze', '--history', file, '--chunk-size', '2', '--yes', '--model', 'sonnet', '--concurrency', '2'],
+      { ...io, stdin: stdin() },
+    );
+    assert.equal(code, 0);
+    const calls = await readCalls(fake.log);
+    assert.deepEqual(calls.map((c) => c.part).sort(), [1, 2]);
+    assert.deepEqual(calls[0]!.args.slice(-2), ['--model', 'sonnet']);
+    // --force runs finished chunks again.
+    assert.equal(await main(['analyze', '--history', file, '--chunk-size', '2', '--yes', '--force'], { ...io, stdin: stdin() }), 0);
+    assert.equal((await readCalls(fake.log)).length, 4);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(fake.dir, { recursive: true, force: true });
   }
 });

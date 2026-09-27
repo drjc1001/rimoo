@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatRepeated, formatSaved, formatSummary, n } from './format.ts';
+import { formatLargeHistory, formatProgress, seconds } from './format.ts';
+import type { Manifest, ManifestChunk } from './chunks.ts';
 import type { RepeatedGroup } from './repeated.ts';
 import type { Stats } from './stats.ts';
 
@@ -64,4 +66,41 @@ test('formatRepeated: three sections, aligned counts and projects, long keys cli
 
 test('formatSaved: lists every file on one line', () => {
   assert.equal(formatSaved(['o/stats.json', 'o/repeated.json']), 'Saved o/stats.json and o/repeated.json\n');
+});
+
+test('formatLargeHistory: two lines above 2,000,000 tokens or 40 chunks, nothing otherwise', () => {
+  const m = (totalTokens: number, totalChunks: number) =>
+    ({ totalChunks, estimateFull: { calls: totalChunks, promptTokens: 0, overheadTokens: 0, outputTokens: 0, totalTokens } }) as unknown as Manifest;
+  assert.equal(formatLargeHistory(m(1_260_000, 24)), '');
+  assert.equal(formatLargeHistory(m(2_000_000, 40)), '');
+  for (const big of [m(2_000_001, 24), m(1_000_000, 41)]) {
+    assert.equal(
+      formatLargeHistory(big),
+      '  This is a large history.\n' +
+        '  Narrow it with --since <date> or --project <text>, or run it in several sittings: finished chunks are kept' +
+        ' and the next run picks up where this one stopped.\n\n',
+    );
+  }
+});
+
+test('formatProgress and seconds: one line per chunk', () => {
+  const chunk = { index: 3 } as ManifestChunk;
+  const result = {
+    usage: { input: 1, cacheCreation: 2, cacheRead: 3, output: 4, total: 51204 },
+    costUsd: 0.19,
+    durationMs: 41_000,
+    findings: new Array(31),
+    dropped: { findings: 2, evidence: 0 },
+  } as never;
+  assert.equal(
+    formatProgress({ kind: 'done', chunk, total: 24, result }),
+    '  chunk 3/24 · 51,204 tokens · $0.19 · 41 s · 31 findings (2 dropped)\n',
+  );
+  assert.equal(formatProgress({ kind: 'skipped', chunk, total: 24 }), '  chunk 3/24 · already done, kept\n');
+  assert.equal(
+    formatProgress({ kind: 'failed', chunk, total: 24, error: new Error('chunk 3: limit') }),
+    '  chunk 3/24 · failed: chunk 3: limit\n',
+  );
+  assert.equal(seconds(400), '0 s');
+  assert.equal(seconds(185_000), '3 min 5 s');
 });

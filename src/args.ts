@@ -1,6 +1,7 @@
 import { runAnalyze } from './analyze.ts';
 import { DEFAULT_CHUNK_SIZE, isDate } from './chunks.ts';
 import { DEFAULT_SIMILARITY } from './repeated.ts';
+import { MAX_CONCURRENCY } from './runner.ts';
 
 export const HELP = `rimoo — Remember how you work.
 
@@ -13,8 +14,13 @@ Options:
   --similarity <0-1> how alike two instructions must be to count as one (default: ${DEFAULT_SIMILARITY})
   --project <text>   only analyze projects whose path contains this text
   --since <date>     only analyze prompts from this date on, YYYY-MM-DD
-  --sample <n>       write only the first n chunks, for a quick trial run
+  --sample <n>       only the first n chunks, for a quick trial run
   --chunk-size <n>   prompts per chunk (default: ${DEFAULT_CHUNK_SIZE.toLocaleString('en-US')})
+  --prepare-only     stop after writing the prompts; do not run Claude Code
+  --yes              run Claude Code without asking first
+  --concurrency <n>  chunks to analyze at once, 1 to ${MAX_CONCURRENCY} (default: 1)
+  --force            analyze chunks again even if they already have findings
+  --model <name>     model for Claude Code to use, passed to claude --model as is
   -h, --help         show this help
 `;
 
@@ -27,7 +33,18 @@ export interface ParsedArgs {
 /** Tiny argv parser: one positional command, `--key value`, `--key=value`, `-h`. */
 export function parseArgs(argv: string[]): ParsedArgs {
   const out: ParsedArgs = { options: {}, errors: [] };
-  const takesValue = new Set(['history', 'out', 'similarity', 'project', 'since', 'sample', 'chunk-size']);
+  const takesValue = new Set([
+    'history',
+    'out',
+    'similarity',
+    'project',
+    'since',
+    'sample',
+    'chunk-size',
+    'concurrency',
+    'model',
+  ]);
+  const flags = new Set(['prepare-only', 'yes', 'force']);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === '-h' || arg === '--help') {
@@ -35,6 +52,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
     } else if (arg.startsWith('--')) {
       const eq = arg.indexOf('=');
       const key = eq === -1 ? arg.slice(2) : arg.slice(2, eq);
+      if (flags.has(key)) {
+        if (eq === -1) out.options[key] = true;
+        else out.errors.push(`Option --${key} takes no value`);
+        continue;
+      }
       if (!takesValue.has(key)) {
         out.errors.push(`Unknown option: --${key}`);
         continue;
@@ -56,6 +78,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
 export interface Io {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
+  /** Where the y/N answer comes from; without it analyze stops after preparing the prompts. */
+  stdin?: (NodeJS.ReadableStream & { isTTY?: boolean }) | undefined;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
 }
@@ -86,6 +110,14 @@ export async function main(argv: string[], io: Io): Promise<number> {
   };
   const sample = positive('sample');
   const chunkSize = positive('chunk-size');
+  let concurrency: number | undefined;
+  if (typeof options.concurrency === 'string') {
+    const raw = options.concurrency;
+    concurrency = Number(raw);
+    if (!/^\d+$/.test(raw.trim()) || concurrency < 1 || concurrency > MAX_CONCURRENCY) {
+      errors.push(`Option --concurrency must be a whole number from 1 to ${MAX_CONCURRENCY}, got: ${raw}`);
+    }
+  }
   if (typeof options.since === 'string' && !isDate(options.since)) {
     errors.push(`Option --since must be a date written YYYY-MM-DD, got: ${options.since}`);
   }
@@ -102,6 +134,12 @@ export async function main(argv: string[], io: Io): Promise<number> {
     project: str(options.project),
     since: str(options.since),
     sample,
+    prepareOnly: options['prepare-only'] === true,
+    yes: options.yes === true,
+    concurrency,
+    force: options.force === true,
+    model: str(options.model),
+    stdin: io.stdin,
     env: io.env,
     cwd: io.cwd,
     stdout: io.stdout,

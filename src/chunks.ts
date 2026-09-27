@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Prompt } from './history.ts';
 import { buildPrompt, dataLine, projectHeader } from './prompt-template.ts';
-import { CALL_OVERHEAD_TOKENS, estimateTokens } from './tokens.ts';
+import { CALL_OVERHEAD_TOKENS, OUTPUT_PER_INPUT, estimateTokens } from './tokens.ts';
 import { classify } from './repeated.ts';
 import { localDate } from './stats.ts';
 
@@ -55,7 +55,8 @@ export function tokenEstimate(promptTokens: number[]): TokenEstimate {
   const calls = promptTokens.length;
   const prompt = promptTokens.reduce((a, b) => a + b, 0);
   const overhead = calls * CALL_OVERHEAD_TOKENS;
-  return { calls, promptTokens: prompt, overheadTokens: overhead, totalTokens: prompt + overhead };
+  const output = Math.round(prompt * OUTPUT_PER_INPUT);
+  return { calls, promptTokens: prompt, overheadTokens: overhead, outputTokens: output, totalTokens: prompt + overhead + output };
 }
 
 export interface ManifestChunk {
@@ -76,8 +77,10 @@ export interface TokenEstimate {
   calls: number;
   /** Tokens in the prompt files themselves. */
   promptTokens: number;
-  /** Claude Code's own overhead per call, times calls. */
+  /** The call's own overhead, times calls. */
   overheadTokens: number;
+  /** The model's answers and thinking, OUTPUT_PER_INPUT of the prompt tokens. */
+  outputTokens: number;
   totalTokens: number;
 }
 
