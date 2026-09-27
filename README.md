@@ -4,6 +4,16 @@
 
 Discover the engineering habits hidden inside your AI coding history. Runs locally on your Claude Code history.
 
+## Why
+
+Measured on one developer's year of Claude Code history (about 24,000 prompts):
+
+- The same instruction was typed again 842 times ("merged, help me deploy" alone: 49 times).
+- In a sample of 1,930 prompts, about a third were re-teaching a habit that had already been stated.
+- One prompt in thirty was a correction, and each one cost about 3.6 minutes of waiting for a redo.
+
+Rimoo turns those habits into a CLAUDE.md that Claude loads on its own. In a blind check, 18 replies that had once been corrected were re-run with that file, and all 18 passed. (They were chosen because they had been corrected, the re-run used the same facts, and the judge was the developer whose rules they are, so read it as "would pass now", not "18 times better".)
+
 ## Install / run
 
 ```bash
