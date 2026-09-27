@@ -71,8 +71,11 @@ export function formatRepeated(r: Repeated): string {
   ].join('\n');
 }
 
-/** What was prepared for the language-model pass; promptDir is how the caller wants the folder shown. */
-export function formatPrepared(m: Manifest, promptDir: string): string {
+/**
+ * What was prepared for the language-model pass; promptDir and transcriptsDir are how the caller wants
+ * those folders shown.
+ */
+export function formatPrepared(m: Manifest, promptDir: string, transcriptsDir = 'the projects folder'): string {
   const d = m.dropped;
   const plural = (v: number, one: string, many: string): string => `${n(v)} ${v === 1 ? one : many}`;
   const lines = ['Prepared for analysis'];
@@ -80,6 +83,21 @@ export function formatPrepared(m: Manifest, promptDir: string): string {
     `  ${plural(m.candidates, 'prompt', 'prompts')} kept · dropped ${plural(d.slash, 'slash command', 'slash commands')}, ` +
       `${plural(d.short, 'short reply', 'short replies')}, ${n(d.empty)} empty or paste-only`,
   );
+  const t = m.transcripts;
+  if (t !== null && t !== undefined) {
+    if (t.opened === 0) {
+      lines.push(`  Transcripts: no session files for this history in ${transcriptsDir}; going on without them`);
+    } else if (t.matched === 0) {
+      lines.push(
+        `  Transcripts: opened ${plural(t.opened, 'session file', 'session files')} but none of the prompts matched; going on without them`,
+      );
+    } else {
+      const pct = t.candidates === 0 ? 0 : Math.round((t.matched / t.candidates) * 100);
+      lines.push(
+        `  Transcripts: matched ${n(t.matched)} of ${plural(t.candidates, 'prompt', 'prompts')} (${pct}%) from ${plural(t.opened, 'session file', 'session files')}`,
+      );
+    }
+  }
   if (m.chunks.length === 0) {
     lines.push('  Nothing to analyze with these filters');
   } else {

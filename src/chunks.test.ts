@@ -279,3 +279,29 @@ test('writeChunks: with --sample the manifest costs the whole run as well as the
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('dataLine: Claude’s previous message follows ⟵ on the same line; its characters count toward the chunk', () => {
+  assert.equal(
+    dataLine({ id: 9, ts: '2026-02-17T15:14', project: '/repos/a', text: 'why\nnot', before: 'Tests pass.\nShip it?' }),
+    '9 | 2026-02-17T15:14 | why not ⟵ Claude just said: Tests pass. Ship it?',
+  );
+  const ps = [prompt('why is this still failing', at(2026, 4, 1)), prompt('and this one too please', at(2026, 4, 2))];
+  const before = 'x'.repeat(200);
+  const transcripts = new Map<number, string | undefined>([
+    [ps[0]!.id, before],
+    [ps[1]!.id, before],
+  ]);
+  const plain = prepareChunks(ps, { chunkSize: 10 });
+  const oneChunk = chars(buildPrompt({ index: 1, rows: plain.all[0]! }));
+  assert.equal(plain.totalChunks, 1);
+  assert.equal(plain.transcripts, null);
+  // Room for both lines without Claude's words, not with them.
+  const r = prepareChunks(ps, { chunkSize: 10, maxChars: oneChunk + 300, transcripts });
+  assert.equal(r.totalChunks, 2);
+  assert.deepEqual(r.transcripts, { matched: 2, attached: 2 });
+  assert.equal(r.all[0]![0]!.before, before);
+  assert.match(buildPrompt({ index: 1, rows: r.all[0]!, transcripts: true }), /A line may end with ⟵ Claude just said/);
+  assert.doesNotMatch(buildPrompt({ index: 1, rows: plain.all[0]! }), /⟵/);
+});
+
+const chars = (s: string): number => [...s].length;

@@ -21,6 +21,8 @@ Options:
   --concurrency <n>  chunks to analyze at once, 1 to ${MAX_CONCURRENCY} (default: 1)
   --force            analyze chunks and merge again even if already done
   --model <name>     model for Claude Code to use, passed to claude --model as is
+  --with-transcripts give short prompts Claude's previous message, read from the session
+                     transcripts next to the history (more to analyze, so it costs more)
   --allow-paths      keep file paths and project names in CLAUDE.md, SKILL.md, workstyle.json and share.txt
   -h, --help         show this help
 `;
@@ -45,7 +47,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     'concurrency',
     'model',
   ]);
-  const flags = new Set(['prepare-only', 'yes', 'force', 'allow-paths']);
+  const flags = new Set(['prepare-only', 'yes', 'force', 'allow-paths', 'with-transcripts']);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === '-h' || arg === '--help') {
@@ -141,6 +143,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
     force: options.force === true,
     model: str(options.model),
     allowPaths: options['allow-paths'] === true,
+    withTranscripts: options['with-transcripts'] === true,
     stdin: io.stdin,
     env: io.env,
     cwd: io.cwd,

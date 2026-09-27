@@ -5,6 +5,9 @@ export interface PromptInput {
    *  prompt that changes is a prompt whose finished findings can no longer be reused. */
   index: number;
   rows: ChunkRow[];
+  /** Explain the ⟵ Claude just said: … tail. Only when --with-transcripts matched something, so prompts
+   *  written without it stay byte for byte what they were and their findings are reused. */
+  transcripts?: boolean | undefined;
 }
 
 /** The last path segment: "/data/repos/toy-app" and "C:\\Users\\me\\toy-app" both read "toy-app". */
@@ -17,9 +20,15 @@ export function projectHeader(project: string): string {
   return `# project: ${projectName(project)}`;
 }
 
-/** One data line: id | ts | text, with line breaks in the text turned into spaces. */
+/** Joins a message to what Claude said just before it. */
+export const BEFORE_MARK = ' ⟵ Claude just said: ';
+
+const oneLine = (s: string): string => s.replace(/\s*[\r\n]+\s*/g, ' ');
+
+/** One data line: id | ts | text, with line breaks in the text turned into spaces, and Claude's previous message when there is one. */
 export function dataLine(r: ChunkRow): string {
-  return `${r.id} | ${r.ts} | ${r.text.replace(/\s*[\r\n]+\s*/g, ' ')}`;
+  const line = `${r.id} | ${r.ts} | ${oneLine(r.text)}`;
+  return r.before === undefined ? line : line + BEFORE_MARK + oneLine(r.before);
 }
 
 /** The data section: a project header, then that project's lines, for each project in turn. */
@@ -36,11 +45,14 @@ export function dataSection(rows: ChunkRow[]): string {
   return lines.join('\n');
 }
 
+const TRANSCRIPTS_NOTE =
+  "A line may end with ⟵ Claude just said: …, the assistant's previous message, cut short; the developer's words are what comes before it.\n";
+
 /**
  * The full prompt for one chunk, ready for `claude -p`. The findings it asks for mirror the fields of
  * the hand-made scan it replaces: rule, how often, how sure, quotes with time, when it comes up.
  */
-export function buildPrompt({ index, rows }: PromptInput): string {
+export function buildPrompt({ index, rows, transcripts }: PromptInput): string {
   const intro = `Below are messages one developer typed to Claude Code, in their own words. This is part ${index}: ${rows.length.toLocaleString('en-US')} messages, grouped by project and in time order within each project.`;
   return `${intro}
 
@@ -75,7 +87,7 @@ Text like [Pasted text #1 +3 lines] marks a spot where they pasted something; wh
 If nothing repeats, reply {"findings":[]}.
 
 A line starting with # names the project; every line after it is one message from that project: id | time | text
-
+${transcripts ? TRANSCRIPTS_NOTE : ''}
 <messages>
 ${dataSection(rows)}
 </messages>
