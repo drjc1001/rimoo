@@ -39,3 +39,22 @@ created: 2026-09-28
 - Jasper 本機選「試跑 2 段」跑完看到前十條（花 2 段額度，他點頭才跑）。
 - `node --test`：plugin.json 與 marketplace.json 可解析、兩邊 name 一致、SKILL.md 有 frontmatter 且提到 `--out` 與 `--yes`。
 - 派工規則不變：子代理不呼叫真的 `claude`、不碰 git；`claude plugin validate` 由 Fable 跑。
+
+## 自驗 2026-09-28（Opus）
+- 新增：`plugin/.claude-plugin/plugin.json`、`plugin/skills/rimoo/SKILL.md`、`.claude-plugin/marketplace.json`、`src/plugin.test.ts`（4 個測試）。
+- 修改：`README.md` 在「Install / run」下加「From Claude Code」一節（兩行安裝＋一句 `/rimoo` 做什麼）。
+- `npm run typecheck`：exit 0。`npm test`：exit 0，134 個全過（原 130＋新 4）。
+- 沒驗到、不確定：
+  1. `claude plugin validate ./plugin --strict` 沒跑（規矩不准跑真的 `claude`），`allowed-tools` 的 `Bash(npx -y rimoo@latest *)` 樣式、以及背景執行時後面接 `> ~/.rimoo/run.log 2>&1` 會不會被這個樣式放行，都沒驗。
+  2. 本機安裝、斜線選單、對話裡實跑（含巢狀 `claude -p`）都沒做，交主代理。
+  3. SKILL.md 多寫了兩個 CLI 實際會走到的分支：所有段都已完成時 CLI 停在「Not merging」（也是 exit 2）→ 照樣問三選一；找不到 `claude` 時 CLI 回 exit 0 並提示 → 轉述後停。
+  4. `> ~/.rimoo/run.log` 依賴第 2 步已建立 `~/.rimoo`（第 2 步會寫 prompts，所以會在），沒另外 `mkdir`。
+
+## 審後修正與自驗 2026-09-28（Fable）
+- 修正：`marketplace.json` 補 `description`（`claude plugin validate . --strict` 原本因缺它退回）；`allowed-tools` 加 `Bash(command -v claude)`（第 1 步會跑）。
+- `claude plugin validate ./plugin --strict`、`validate . --strict`、`validate ./plugin/skills --strict`：三個都過（exit 0）。
+- `npm run typecheck` exit 0；`npm test` exit 0，134／134。
+- 本機安裝（user scope）：`claude plugin marketplace add ./` → `claude plugin install rimoo@rimoo` → `claude plugin list` 顯示 rimoo@rimoo 0.1.0 enabled；`claude plugin details` 認到 Skills (1) rimoo，常駐成本約 77 tokens／每個 session，觸發一次約 1.2k。快取在 `~/.claude/plugins/cache/rimoo/rimoo/0.1.0/`，內容就是 plugin.json＋SKILL.md。
+- 第 2 步實跑（在 Claude Code 對話的 Bash 裡、沒有 TTY、不帶 `--yes`）：`npx -y rimoo@latest analyze --out ~/.rimoo` 從 npm 抓 0.1.0，印統計（24,126 則／61 專案）、24 段、預估 2,172,274 tokens，然後「Not running: there is no terminal to ask for a yes」exit 2；`~/.rimoo/` 只有 stats／repeated／manifest／prompts／chunks，findings 0 個＝沒送任何東西給 Claude。
+- 沒驗到（要 Jasper 在對話裡打 `/rimoo` 才看得到）：斜線選單有沒有列出 `/rimoo`；`allowed-tools` 的樣式對 `… > ~/.rimoo/run.log 2>&1` 這種帶重導向的指令放不放行（不放行就是多按一次同意，不影響結果）；試跑 2 段（花他額度，等他點頭）。
+- marketplace 目前指向本機目錄 `/data/repos/1011_Project_Rimoo`；merge 後換成 `drjc1001/rimoo`（GitHub）重裝一次，走使用者真正會走的路。

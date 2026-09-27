@@ -20,6 +20,17 @@ Rimoo turns those habits into a CLAUDE.md that Claude loads on its own. In a bli
 npx rimoo analyze
 ```
 
+### From Claude Code
+
+Add Rimoo as a Claude Code plugin:
+
+```text
+/plugin marketplace add drjc1001/rimoo
+/plugin install rimoo@rimoo
+```
+
+Then type `/rimoo` in a conversation. It shows the numbers and the cost estimate first, asks before it sends anything, and writes the results to `~/.rimoo`.
+
 ### What it costs
 
 The analysis runs on your own Claude Code (`claude -p`), so no API key is needed. It uses your usual Claude Code model unless you pass `--model`.
