@@ -34,6 +34,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "node --test \"src/**/*.test.ts\"",
     "prepack": "npm run build"
