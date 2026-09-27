@@ -3,11 +3,14 @@ import path from 'node:path';
 import type { Merged, MergedRule } from './merge.ts';
 import { CATEGORIES, type Category, type Evidence } from './runner.ts';
 import { localDate, type Stats } from './stats.ts';
+import { formatRemoved, redact, type Hit, type HitKind } from './privacy.ts';
 
 /** How many rules the summary lists. */
 export const TOP_RULES = 10;
 /** Quotes per rule in report.md. */
 export const REPORT_QUOTES = 3;
+/** Patterns listed in share.txt. */
+export const SHARE_RULES = 5;
 
 export const CATEGORY_TITLE: Record<Category, string> = {
   communication: 'Communication',
@@ -44,6 +47,13 @@ const TEXT = {
       (keys.length > 0 ? `; strongest: ${keys.join(', ')}` : '') +
       '. Use it at the start of any coding session.',
     stop: '.',
+    share: {
+      title: 'My AI coding workstyle',
+      prompts: (v: number) => `${count(v, 'prompt', 'prompts')} analyzed`,
+      projects: (v: number) => count(v, 'project', 'projects'),
+      top: 'Top patterns:',
+      footer: 'Found with Rimoo — npx rimoo analyze',
+    },
   },
   zh: {
     seen: (chunks: number, freq: number) => `（出現於 ${n(chunks)} 段、${n(freq)} 則）`,
@@ -55,6 +65,13 @@ const TEXT = {
       (keys.length > 0 ? `，最明顯的是 ${keys.join('、')}` : '') +
       '。開始寫程式前載入。',
     stop: '。',
+    share: {
+      title: '我跟 AI 寫程式的習慣',
+      prompts: (v: number) => `分析了 ${n(v)} 則訊息`,
+      projects: (v: number) => `${n(v)} 個專案`,
+      top: '最常出現的習慣：',
+      footer: '用 Rimoo 整理：npx rimoo analyze',
+    },
   },
 } as const;
 
@@ -209,18 +226,90 @@ export function renderWorkstyle(input: ExportInput): Workstyle {
   };
 }
 
-export const EXPORT_FILES = ['report.md', 'CLAUDE.md', 'SKILL.md', 'workstyle.json'] as const;
+/**
+ * share.txt (§11): prompts, projects and the top portable rules, short enough to paste into a README or a post.
+ * Each rule by its title, or the rule itself without one.
+ */
+export function renderShare(input: ExportInput): string {
+  const { merged, stats } = input;
+  const t = TEXT[rulesLang(merged.rules)].share;
+  const top = merged.rules.filter(isPortable).slice(0, SHARE_RULES);
+  const line = (r: MergedRule): string => oneLine(r.title ?? r.rule).replace(/[。.]+$/, '');
+  const out = [t.title, '', t.prompts(stats.prompts), t.projects(stats.projects), ''];
+  if (top.length > 0) out.push(t.top, ...top.map((r) => `• ${line(r)}`), '');
+  out.push(t.footer, '');
+  return out.join('\n');
+}
 
-/** Write the four exports into outDir; returns their paths in EXPORT_FILES order. */
-export async function writeExports(outDir: string, input: ExportInput): Promise<string[]> {
+export const EXPORT_FILES = ['report.md', 'CLAUDE.md', 'SKILL.md', 'workstyle.json', 'share.txt'] as const;
+export type ExportFile = (typeof EXPORT_FILES)[number];
+
+export interface ExportOptions {
+  /** Keep file paths in the files meant to be shared. */
+  allowPaths?: boolean | undefined;
+  /** Told, per file, what the privacy gate removed; only called for files with a removal. */
+  onRemoved?: ((file: ExportFile, hits: Hit[]) => void) | undefined;
+  /** Project names the gate removes (see privacy.ts `projectNames`). */
+  names?: readonly string[] | undefined;
+}
+
+/** What the gate removes from each file: report.md keeps the user's own quotes, so only keys and tokens go. */
+const GATE: Record<ExportFile, readonly HitKind[] | 'all'> = {
+  'report.md': ['secret'],
+  'CLAUDE.md': 'all',
+  'SKILL.md': 'all',
+  'workstyle.json': 'all',
+  'share.txt': 'all',
+};
+
+/** In workstyle.json only the rule text is scanned, not keys, dates or counts. */
+const JSON_TEXT_LINE = /^\s*"(rule|title)": "/;
+
+/** Run one file's text through the privacy gate. */
+export function gate(
+  file: ExportFile,
+  text: string,
+  allowPaths = false,
+  names: readonly string[] = [],
+): { text: string; hits: Hit[] } {
+  const g = GATE[file];
+  const opts = { allowPaths, kinds: g === 'all' ? undefined : g, names };
+  if (file !== 'workstyle.json') return redact(text, opts);
+  const hits: Hit[] = [];
+  const lines = text.split('\n').map((line, i) => {
+    if (!JSON_TEXT_LINE.test(line)) return line;
+    const r = redact(line, opts);
+    hits.push(...r.hits.map((h) => ({ ...h, line: i + 1 })));
+    return r.text;
+  });
+  return { text: lines.join('\n'), hits };
+}
+
+/** The terminal lines for what the gate removed, one per file; empty when nothing was. */
+export function formatGate(removed: { file: ExportFile; hits: Hit[] }[]): string {
+  return removed.map(({ file, hits }) => formatRemoved(file, hits)).join('');
+}
+
+/**
+ * Write the five exports into outDir, each through the privacy gate (what it finds becomes `[removed]`, and the
+ * file is written anyway); returns their paths in EXPORT_FILES order.
+ */
+export async function writeExports(outDir: string, input: ExportInput, opts: ExportOptions = {}): Promise<string[]> {
   await mkdir(outDir, { recursive: true });
-  const contents = [
-    renderReport(input),
-    renderClaudeMd(input),
-    renderSkillMd(input),
-    JSON.stringify(renderWorkstyle(input), null, 2) + '\n',
-  ];
-  const files = EXPORT_FILES.map((f) => path.join(outDir, f));
-  for (const [i, file] of files.entries()) await writeFile(file, contents[i]!, 'utf8');
+  const contents: Record<ExportFile, string> = {
+    'report.md': renderReport(input),
+    'CLAUDE.md': renderClaudeMd(input),
+    'SKILL.md': renderSkillMd(input),
+    'workstyle.json': JSON.stringify(renderWorkstyle(input), null, 2) + '\n',
+    'share.txt': renderShare(input),
+  };
+  const files: string[] = [];
+  for (const f of EXPORT_FILES) {
+    const { text, hits } = gate(f, contents[f], opts.allowPaths === true, opts.names ?? []);
+    const file = path.join(outDir, f);
+    await writeFile(file, text, 'utf8');
+    if (hits.length > 0) opts.onRemoved?.(f, hits);
+    files.push(file);
+  }
   return files;
 }
