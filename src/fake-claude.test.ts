@@ -28,7 +28,7 @@ let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (d) => (input += d));
 process.stdin.on('end', () => {
-  const part = Number((/This is part (\\d+) of/.exec(input) || [])[1] || 0);
+  const part = Number((/This is part (\\d+):/.exec(input) || [])[1] || 0);
   const merge = /\\n<findings>\\n/.test(input);
   const category = merge ? (/in the category "([a-z_]+)"/.exec(input) || [])[1] || null : null;
   if (merge && process.env.FAKE_CLAUDE_MERGE_LOG) {

@@ -55,25 +55,37 @@ test('prepareChunks: keeps instructions only and counts what it dropped', () => 
   );
 });
 
-test('prepareChunks: sorted by project then time, cut into consecutive chunks', () => {
+test('prepareChunks: chunks follow time; inside a chunk rows are grouped by project', () => {
   const ps = [
-    prompt('b project, later message', at(2026, 3, 2), '/repos/b'),
-    prompt('a project, later message', at(2026, 3, 2), '/repos/a'),
+    prompt('b project, later message', at(2026, 3, 4), '/repos/b'),
+    prompt('a project, later message', at(2026, 3, 5), '/repos/a'),
     prompt('b project, earlier message', at(2026, 3, 1), '/repos/b'),
-    prompt('a project, earlier message', at(2026, 3, 1), '/repos/a'),
-    prompt('no project on this line', at(2026, 3, 1), ''),
+    prompt('a project, earlier message', at(2026, 3, 2), '/repos/a'),
+    prompt('no project on this line', at(2026, 3, 3), ''),
   ];
   const r = prepareChunks(ps, { chunkSize: 2 });
-  assert.equal(r.totalChunks, 3);
+  assert.equal(r.candidates, 5);
   assert.deepEqual(
     r.chunks.map((c) => c.map((row) => `${row.project} ${row.text}`)),
     [
-      ['(unknown) no project on this line', '/repos/a a project, earlier message'],
-      ['/repos/a a project, later message', '/repos/b b project, earlier message'],
-      ['/repos/b b project, later message'],
+      // 3/1 and 3/2 by time, shown a before b
+      ['/repos/a a project, earlier message', '/repos/b b project, earlier message'],
+      // 3/3 and 3/4
+      ['(unknown) no project on this line', '/repos/b b project, later message'],
+      ['/repos/a a project, later message'],
     ],
   );
-  assert.equal(r.chunks[0]![1]!.ts, '2026-03-01T12:00');
+});
+
+test('prepareChunks: a prompt added later changes only the last chunk', () => {
+  const ps = Array.from({ length: 7 }, (_, i) => prompt(`message number ${i} here`, at(2026, 3, 1, 9, i), i % 2 ? '/repos/a' : '/repos/b'));
+  const before = prepareChunks(ps, { chunkSize: 3 }).chunks.map((c) => dataSection(c));
+  const grown = [...ps, prompt('one more, typed later', at(2026, 3, 2), '/repos/a')];
+  const after = prepareChunks(grown, { chunkSize: 3 }).chunks.map((c) => dataSection(c));
+  assert.equal(before.length, 3);
+  assert.equal(after.length, 3);
+  assert.deepEqual(after.slice(0, 2), before.slice(0, 2));
+  assert.notEqual(after[2], before[2]);
 });
 
 test('prepareChunks: --project, --since (local date, inclusive), --sample', () => {
@@ -143,8 +155,8 @@ test('buildPrompt: says which part, how many messages, the seven categories, the
     { id: 3, ts: '2026-02-17T15:14', project: '/repos/a', text: 'commit this and push' },
     { id: 9, ts: '2026-02-18T09:00', project: '/repos/a', text: 'why is the test\nstill red' },
   ];
-  const p = buildPrompt({ index: 2, total: 5, rows });
-  assert.match(p, /This is part 2 of 5: 2 messages/);
+  const p = buildPrompt({ index: 2, rows });
+  assert.match(p, /This is part 2: 2 messages/);
   for (const c of [
     'communication',
     'planning',
@@ -194,10 +206,11 @@ test('writeChunks: prompt and data files per chunk, a manifest, old parts cleare
     const first = m.chunks[0]!;
     assert.equal(first.file, 'chunks/001.jsonl');
     assert.equal(first.promptFile, 'prompts/001.md');
+    // By time: a's first (3/1 08:00) and b's only (3/1 10:00) share the chunk; a's second (3/2) starts the next.
     assert.equal(first.prompts, 2);
     assert.equal(first.firstTs, '2026-03-01T08:00');
-    assert.equal(first.lastTs, '2026-03-02T09:30');
-    assert.equal(first.projects, 1);
+    assert.equal(first.lastTs, '2026-03-01T10:00');
+    assert.equal(first.projects, 2);
     const promptText = await readFile(path.join(dir, first.promptFile), 'utf8');
     assert.equal(first.chars, [...promptText].length);
     assert.ok(first.tokens > 0 && first.tokens < first.chars, `${first.tokens} of ${first.chars}`);
@@ -206,7 +219,7 @@ test('writeChunks: prompt and data files per chunk, a manifest, old parts cleare
     assert.equal(m.estimate.promptTokens, m.chunks[0]!.tokens + m.chunks[1]!.tokens);
     assert.equal(m.estimate.outputTokens, Math.round(m.estimate.promptTokens * 0.45));
     assert.equal(m.estimate.totalTokens, m.estimate.promptTokens + 2 * 1_700 + m.estimate.outputTokens);
-    assert.match(promptText, /This is part 1 of 2: 2 messages/);
+    assert.match(promptText, /This is part 1: 2 messages/);
 
     // Every id quoted in the prompt's data section is a row of the matching chunk file.
     const jsonl = (await readFile(path.join(dir, first.file), 'utf8'))
@@ -224,7 +237,7 @@ test('writeChunks: prompt and data files per chunk, a manifest, old parts cleare
       ids,
       jsonl.map((r) => r.id),
     );
-    assert.deepEqual(ids, [ps[0]!.id, ps[1]!.id]);
+    assert.deepEqual(ids, [ps[0]!.id, ps[2]!.id]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
