@@ -193,6 +193,8 @@ test('runChunk ok: flags, stdin, no CLAUDECODE, validated findings and usage in 
     const mcp = path.join(outDir, 'mcp-none.json');
     assert.deepEqual(call!.args, [
       '-p',
+      '--setting-sources',
+      '',
       '--output-format',
       'json',
       '--system-prompt',
@@ -206,6 +208,7 @@ test('runChunk ok: flags, stdin, no CLAUDECODE, validated findings and usage in 
       '--model',
       'opus',
     ]);
+    assert.ok(call!.cwd.endsWith('claude-cwd'), call!.cwd);
     assert.deepEqual(JSON.parse(await readFile(mcp, 'utf8')), { mcpServers: {} });
   } finally {
     await rm(outDir, { recursive: true, force: true });

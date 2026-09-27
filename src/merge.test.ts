@@ -230,7 +230,7 @@ test('runMerge: one call per category, validated, joined back, ranked, written t
     const calls = await readMergeCalls(mergeLog);
     assert.deepEqual(calls.map((c) => c.category).sort(), ['communication', 'planning', 'testing']);
     const comm = calls.find((c) => c.category === 'communication')!;
-    assert.deepEqual(comm.args.slice(0, 5), ['-p', '--output-format', 'json', '--system-prompt', SYSTEM_PROMPT]);
+    assert.deepEqual(comm.args.slice(0, 7), ['-p', '--setting-sources', '', '--output-format', 'json', '--system-prompt', SYSTEM_PROMPT]);
     assert.deepEqual(comm.args.slice(-2), ['--model', 'opus']);
     assert.match(comm.prompt, /\n1 \| 1 \| 5 \| high \| 結論先講，理由放後面。 \| -\n3 \| 2 \| 3 \| high \| 先講結論。 \| 看到長篇回報後\n/);
     for (const id of ids.flat()) assert.ok(!comm.prompt.includes(quoteOf(id)), 'no quote goes to the merge prompt');
