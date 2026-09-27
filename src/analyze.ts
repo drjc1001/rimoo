@@ -2,11 +2,14 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { locateHistory, parseHistory } from './history.ts';
 import { computeStats } from './stats.ts';
-import { formatSummary, n } from './format.ts';
+import { formatRepeated, formatSaved, formatSummary, n } from './format.ts';
+import { DEFAULT_SIMILARITY, forExport, groupRepeated } from './repeated.ts';
 
 export interface AnalyzeOptions {
   historyPath?: string | undefined;
   outDir?: string | undefined;
+  /** Trigram Jaccard threshold for folding near-identical instructions, 0 to 1. */
+  similarity?: number | undefined;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
   stdout: (text: string) => void;
@@ -45,14 +48,24 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
   }
 
   const stats = computeStats(parsed, historyPath);
+  const similarity = opts.similarity ?? DEFAULT_SIMILARITY;
+  const repeated = groupRepeated(parsed.prompts, { similarity });
   const outDir = path.resolve(cwd, opts.outDir ?? 'rimoo-out');
   await mkdir(outDir, { recursive: true });
   const outFile = path.join(outDir, 'stats.json');
   await writeFile(outFile, JSON.stringify(stats, null, 2) + '\n', 'utf8');
+  const repeatedFile = path.join(outDir, 'repeated.json');
+  await writeFile(
+    repeatedFile,
+    JSON.stringify({ generatedAt: stats.generatedAt, similarity, ...forExport(repeated) }, null, 2) + '\n',
+    'utf8',
+  );
 
-  const rel = path.relative(cwd, outFile);
-  const shown = rel === '' || rel.startsWith('..') || path.isAbsolute(rel) ? outFile : rel;
-  opts.stdout(formatSummary(stats, shown));
+  const display = (file: string): string => {
+    const rel = path.relative(cwd, file);
+    return rel === '' || rel.startsWith('..') || path.isAbsolute(rel) ? file : rel;
+  };
+  opts.stdout(formatSummary(stats) + formatRepeated(repeated) + formatSaved([display(outFile), display(repeatedFile)]));
   if (parsed.badLines.length > 0) {
     const shown = parsed.badLines.slice(0, 5).join(', ');
     const more = parsed.badLines.length > 5 ? `, … (${n(parsed.badLines.length)} total)` : '';

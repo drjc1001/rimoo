@@ -1,4 +1,5 @@
 import { runAnalyze } from './analyze.ts';
+import { DEFAULT_SIMILARITY } from './repeated.ts';
 
 export const HELP = `rimoo — Remember how you work.
 
@@ -8,6 +9,7 @@ Usage:
 Options:
   --history <path>   history.jsonl to read (default: ~/.claude/history.jsonl)
   --out <dir>        where to write results (default: ./rimoo-out)
+  --similarity <0-1> how alike two instructions must be to count as one (default: ${DEFAULT_SIMILARITY})
   -h, --help         show this help
 `;
 
@@ -20,7 +22,7 @@ export interface ParsedArgs {
 /** Tiny argv parser: one positional command, `--key value`, `--key=value`, `-h`. */
 export function parseArgs(argv: string[]): ParsedArgs {
   const out: ParsedArgs = { options: {}, errors: [] };
-  const takesValue = new Set(['history', 'out']);
+  const takesValue = new Set(['history', 'out', 'similarity']);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === '-h' || arg === '--help') {
@@ -61,6 +63,13 @@ export async function main(argv: string[], io: Io): Promise<number> {
     return options.help ? 0 : 2;
   }
   if (command !== 'analyze') errors.unshift(`Unknown command: ${command}`);
+  let similarity: number | undefined;
+  if (typeof options.similarity === 'string') {
+    similarity = Number(options.similarity);
+    if (options.similarity.trim() === '' || !Number.isFinite(similarity) || similarity < 0 || similarity > 1) {
+      errors.push(`Option --similarity must be a number from 0 to 1, got: ${options.similarity}`);
+    }
+  }
   if (errors.length > 0) {
     io.stderr(errors.join('\n') + '\n\n' + HELP);
     return 2;
@@ -69,6 +78,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
   return runAnalyze({
     historyPath: str(options.history),
     outDir: str(options.out),
+    similarity,
     env: io.env,
     cwd: io.cwd,
     stdout: io.stdout,

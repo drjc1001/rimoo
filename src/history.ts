@@ -25,6 +25,20 @@ export interface ParseResult {
   duplicates: number;
 }
 
+/**
+ * The command name when the prompt is a slash command ("/compact", "/model opus"), else null.
+ * A path typed as a prompt ("/data/repos/app") is not a command.
+ */
+export function slashCommand(display: string): string | null {
+  const trimmed = display.trim();
+  const m = /^\/[a-z0-9][\w:-]*/i.exec(trimmed);
+  if (!m) return null;
+  // "/data/repos/app" and "/notes.md" are paths; "/btw預期…" and "/btw," are commands typed without a space.
+  const next = trimmed[m[0].length];
+  if (next === '/' || next === '.') return null;
+  return m[0].toLowerCase();
+}
+
 export interface LocateOptions {
   override?: string | undefined;
   env?: NodeJS.ProcessEnv;

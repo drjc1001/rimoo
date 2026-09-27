@@ -68,7 +68,23 @@ test('runAnalyze: writes stats.json, prints summary, warns about unreadable line
     const out = c.out.join('');
     assert.match(out, /4 lines · 1 duplicate removed · 1 unreadable/);
     assert.match(out, /2 prompts · 2 projects · 2026-01-10 → 2026-01-10/);
-    assert.match(out, /Saved custom-out\/stats\.json/);
+    assert.match(out, /Most repeated instructions \(top 20\)\n {2}\(none\)/);
+    assert.match(out, /Short replies \(top 10\)\n {2}1 {2}1 {2}2026-01-10 → 2026-01-10 {2}a\n/);
+    assert.match(out, /Slash commands \(top 10\)\n {2}1 {2}1 {2}2026-01-10 → 2026-01-10 {2}\/compact\n/);
+    assert.match(out, /Saved custom-out\/stats\.json and custom-out\/repeated\.json\n$/);
+    const repeated = JSON.parse(await readFile(path.join(dir, 'custom-out', 'repeated.json'), 'utf8'));
+    assert.deepEqual(Object.keys(repeated), [
+      'generatedAt',
+      'similarity',
+      'instructions',
+      'shortReplies',
+      'slashCommands',
+      'singletons',
+    ]);
+    assert.equal(repeated.similarity, 0.8);
+    // Groups seen once stay on the terminal but out of the file; the file only counts them.
+    assert.deepEqual(repeated.shortReplies, []);
+    assert.deepEqual(repeated.singletons, { instructions: 0, shortReplies: 1, slashCommands: 1 });
     assert.match(c.err.join(''), /skipped 1 unreadable line\(s\): 3\n/);
   } finally {
     await rm(dir, { recursive: true, force: true });
