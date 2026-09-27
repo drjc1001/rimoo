@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { locateHistory, parseHistory, parseLine } from './history.ts';
+import { locateHistory, parseHistory, parseLine, slashCommand } from './history.ts';
 
 test('locateHistory: --history override wins over everything', () => {
   const p = locateHistory({ override: 'some/where/h.jsonl', env: { HOME: '/h', CLAUDE_CONFIG_DIR: '/c' } });
@@ -85,4 +85,20 @@ test('parseHistory: counts lines, drops exact duplicates, reports unreadable lin
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('slashCommand: command name for slash commands, null for paths and plain text', () => {
+  assert.equal(slashCommand('/compact'), '/compact');
+  assert.equal(slashCommand('  /Model opus  '), '/model');
+  assert.equal(slashCommand('/jasper-taste plan'), '/jasper-taste');
+  assert.equal(slashCommand('/mattpocock-skills:tdd'), '/mattpocock-skills:tdd');
+  assert.equal(slashCommand('/btw預期把L1/L2/L3 都做完'), '/btw');
+  assert.equal(slashCommand('/btw, one more thing'), '/btw');
+  assert.equal(slashCommand('/data/repos/app is the repo'), null);
+  assert.equal(slashCommand('/debug/shot.png 這個檔案'), null);
+  assert.equal(slashCommand('/ad-c-4x5-v3.mp4 從 0:01'), null);
+  assert.equal(slashCommand('// a comment'), null);
+  assert.equal(slashCommand('/[B'), null);
+  assert.equal(slashCommand('/'), null);
+  assert.equal(slashCommand('commit this'), null);
 });

@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { HELP, main, parseArgs } from './args.ts';
 
 test('parseArgs: command, --key value, --key=value, help', () => {
@@ -33,4 +36,36 @@ test('main: no command prints help and exits 2; --help exits 0; unknown command 
   const c = io();
   assert.equal(await main(['wat'], c.io), 2);
   assert.match(c.err.join(''), /Unknown command: wat/);
+});
+
+test('main: --similarity must be a number from 0 to 1, otherwise exit 2', async () => {
+  for (const bad of ['abc', '1.5', '-0.1', ' ', 'NaN']) {
+    const err: string[] = [];
+    const code = await main(['analyze', '--similarity', bad, '--history', '/nonexistent'], {
+      stdout: () => {},
+      stderr: (t) => err.push(t),
+    });
+    assert.equal(code, 2, bad);
+    assert.match(err.join(''), /--similarity must be a number from 0 to 1/);
+  }
+  assert.deepEqual(parseArgs(['analyze', '--similarity=0.7']).options, { similarity: '0.7' });
+  assert.match(HELP, /--similarity <0-1>/);
+});
+
+test('main: --similarity reaches repeated.json', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'rimoo-'));
+  try {
+    const file = path.join(dir, 'h.jsonl');
+    await writeFile(file, JSON.stringify({ display: 'commit this', timestamp: 1, project: '/p' }) + '\n');
+    const code = await main(['analyze', '--history', file, '--similarity', '0.7'], {
+      stdout: () => {},
+      stderr: () => {},
+      cwd: dir,
+    });
+    assert.equal(code, 0);
+    const r = JSON.parse(await readFile(path.join(dir, 'rimoo-out', 'repeated.json'), 'utf8'));
+    assert.equal(r.similarity, 0.7);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

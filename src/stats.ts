@@ -1,4 +1,4 @@
-import type { ParseResult } from './history.ts';
+import { slashCommand, type ParseResult } from './history.ts';
 
 export interface Stats {
   generatedAt: string;
@@ -52,7 +52,7 @@ export function computeStats(parsed: ParseResult, source: string, now: Date = ne
     perMonthMap.set(month, (perMonthMap.get(month) ?? 0) + 1);
     if (p.timestamp < first) first = p.timestamp;
     if (p.timestamp > last) last = p.timestamp;
-    if (p.display.trimStart().startsWith('/')) slashCommands++;
+    if (slashCommand(p.display) !== null) slashCommands++;
     if (p.pasteCount > 0) withPaste++;
   }
 

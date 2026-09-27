@@ -1,3 +1,4 @@
+import type { RepeatedGroup, Repeated } from './repeated.ts';
 import type { Stats } from './stats.ts';
 
 export const n = (v: number): string => v.toLocaleString('en-US');
@@ -7,7 +8,8 @@ function bar(value: number, max: number, width = 24): string {
   return '▇'.repeat(Math.max(value > 0 ? 1 : 0, Math.round((value / max) * width)));
 }
 
-export function formatSummary(stats: Stats, outFile: string, topProjects = 10): string {
+/** The stats part of `rimoo analyze`; the caller appends the repeated tables and `formatSaved`. */
+export function formatSummary(stats: Stats, topProjects = 10): string {
   const lines: string[] = [];
   lines.push('Rimoo — Remember how you work.');
   lines.push('');
@@ -33,6 +35,38 @@ export function formatSummary(stats: Stats, outFile: string, topProjects = 10): 
     lines.push(`  ${m.month}  ${n(m.prompts).padStart(widestMonth)}  ${bar(m.prompts, max)}`);
   }
   lines.push('');
-  lines.push(`Saved ${outFile}`);
   return lines.join('\n') + '\n';
+}
+
+const clip = (s: string, max = 80): string => {
+  const chars = [...s];
+  return chars.length > max ? chars.slice(0, max - 1).join('') + '…' : s;
+};
+
+function table(title: string, groups: RepeatedGroup[], top: number): string[] {
+  const shown = groups.slice(0, top);
+  const lines = [`${title} (top ${top})`];
+  if (shown.length === 0) lines.push('  (none)');
+  const wCount = Math.max(...shown.map((g) => n(g.count).length), 1);
+  const wProj = Math.max(...shown.map((g) => n(g.projects).length), 1);
+  for (const g of shown) {
+    lines.push(
+      `  ${n(g.count).padStart(wCount)}  ${n(g.projects).padStart(wProj)}  ${g.first} → ${g.last}  ${clip(g.label)}`,
+    );
+  }
+  lines.push('');
+  return lines;
+}
+
+/** Rows read: times · projects · first → last · the instruction as most often typed. */
+export function formatRepeated(r: Repeated): string {
+  return [
+    ...table('Most repeated instructions', r.instructions, 20),
+    ...table('Short replies', r.shortReplies, 10),
+    ...table('Slash commands', r.slashCommands, 10),
+  ].join('\n');
+}
+
+export function formatSaved(files: string[]): string {
+  return `Saved ${files.join(' and ')}\n`;
 }
