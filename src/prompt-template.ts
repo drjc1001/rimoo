@@ -1,9 +1,9 @@
 import type { ChunkRow } from './chunks.ts';
 
 export interface PromptInput {
-  /** 1-based chunk number. */
+  /** 1-based chunk number. The total is left out on purpose: it changes whenever history grows, and a
+   *  prompt that changes is a prompt whose finished findings can no longer be reused. */
   index: number;
-  total: number;
   rows: ChunkRow[];
 }
 
@@ -40,8 +40,8 @@ export function dataSection(rows: ChunkRow[]): string {
  * The full prompt for one chunk, ready for `claude -p`. The findings it asks for mirror the fields of
  * the hand-made scan it replaces: rule, how often, how sure, quotes with time, when it comes up.
  */
-export function buildPrompt({ index, total, rows }: PromptInput): string {
-  const intro = `Below are messages one developer typed to Claude Code, in their own words. This is part ${index} of ${total}: ${rows.length.toLocaleString('en-US')} messages, grouped by project and in time order within each project.`;
+export function buildPrompt({ index, rows }: PromptInput): string {
+  const intro = `Below are messages one developer typed to Claude Code, in their own words. This is part ${index}: ${rows.length.toLocaleString('en-US')} messages, grouped by project and in time order within each project.`;
   return `${intro}
 
 Find the working habits that come up again and again: how they want results reported, how they plan, build, test and debug, and how they work with an AI assistant. Do not summarize what the projects are about. A habit needs at least two messages behind it; something said once is not a habit.

@@ -6,6 +6,9 @@ import { DEFAULT_CHUNK_SIZE, prepareChunks, writeChunks, type ManifestChunk } fr
 import { createInterface } from 'node:readline';
 import {
   formatLargeHistory,
+  formatMergePlan,
+  formatMergeProgress,
+  formatMergeTotal,
   formatPrepared,
   formatProgress,
   formatRepeated,
@@ -18,6 +21,8 @@ import {
 import { findClaude, finishedChunk, runAll } from './runner.ts';
 import { estimateChunkTokens } from './tokens.ts';
 import { DEFAULT_SIMILARITY, forExport, groupRepeated } from './repeated.ts';
+import { planMerge, runMerge, type Merged } from './merge.ts';
+import { formatTopRules, writeExports } from './exports.ts';
 
 export interface AnalyzeOptions {
   historyPath?: string | undefined;
@@ -38,7 +43,7 @@ export interface AnalyzeOptions {
   yes?: boolean | undefined;
   /** Chunks analyzed at once, 1 to 4. */
   concurrency?: number | undefined;
-  /** Analyze chunks again even if they already have findings. */
+  /** Analyze chunks and merge again even if already done. */
   force?: boolean | undefined;
   /** Passed to `claude --model` as is. */
   model?: string | undefined;
@@ -139,6 +144,7 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
       );
       return 0;
     }
+    let approved = opts.yes === true;
     const toRun: ManifestChunk[] = [];
     for (const c of manifest.chunks) if (opts.force || (await finishedChunk(outDir, c)) === null) toRun.push(c);
     const kept = manifest.chunks.length - toRun.length;
@@ -157,6 +163,7 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
           opts.stdout('Nothing was sent to Claude.\n\n');
           return 0;
         }
+        approved = true;
       }
     }
     const findingsDir = display(path.join(outDir, 'findings'));
@@ -175,7 +182,57 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
     for (const c of manifest.chunks) if (!failed.has(c.index) && (await finishedChunk(outDir, c))) finishedChunks.push(c);
     opts.stdout(formatRunTotal({ summary, manifest, findingsDir, estimateFinished: estimateOf(finishedChunks) }));
     saved.push(`${findingsDir}/`);
-    return summary.chunksFailed.length > 0 ? 1 : 0;
+    if (summary.chunksFailed.length > 0) return 1;
+    return mergeAndExport(claude, approved);
+  }
+
+  /** Fold the findings into rules and write the four exports. Returns the exit code; adds the exports to `saved`. */
+  async function mergeAndExport(claude: string, approved: boolean): Promise<number> {
+    const plan = await planMerge({ outDir, manifest, force: opts.force });
+    if (plan.findings.length === 0) {
+      opts.stdout('No findings to merge, so no report was written.\n\n');
+      return 0;
+    }
+    let merged: Merged;
+    if (plan.cached !== null) {
+      merged = plan.cached;
+      opts.stdout(formatMergeTotal(merged, true));
+    } else {
+      const estimate = plan.calls.reduce((a, c) => a + c.estimate, 0);
+      opts.stdout(formatMergePlan(plan.findings.length, plan.calls.length, estimate));
+      if (!approved) {
+        if (!opts.stdin!.isTTY) {
+          opts.stderr('Not merging: there is no terminal to ask for a yes. Pass --yes to run.\n');
+          return 2;
+        }
+        const question = `Merge now? [y/N] `;
+        if (!(await confirm(opts.stdin!, opts.stdout, question))) {
+          opts.stdout('Nothing was sent to Claude.\n\n');
+          return 0;
+        }
+      }
+      try {
+        merged = await runMerge({
+          claude,
+          outDir,
+          plan,
+          concurrency: opts.concurrency,
+          model: opts.model,
+          env,
+          onProgress: (p) => opts.stdout(formatMergeProgress(p)),
+        });
+      } catch (err) {
+        const why = err instanceof Error ? err.message : String(err);
+        opts.stdout(`  Merge failed: ${why}\n  The findings are kept; run the same command again to merge.\n\n`);
+        return 1;
+      }
+      opts.stdout(formatMergeTotal(merged, false));
+    }
+    const input = { merged, stats };
+    const files = await writeExports(outDir, input);
+    opts.stdout(formatTopRules(input) + '\n');
+    saved.push(...files.map(display));
+    return 0;
   }
 }
 

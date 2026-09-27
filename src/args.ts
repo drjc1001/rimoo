@@ -19,7 +19,7 @@ Options:
   --prepare-only     stop after writing the prompts; do not run Claude Code
   --yes              run Claude Code without asking first
   --concurrency <n>  chunks to analyze at once, 1 to ${MAX_CONCURRENCY} (default: 1)
-  --force            analyze chunks again even if they already have findings
+  --force            analyze chunks and merge again even if already done
   --model <name>     model for Claude Code to use, passed to claude --model as is
   -h, --help         show this help
 `;

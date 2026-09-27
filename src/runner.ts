@@ -130,7 +130,7 @@ export async function findClaude(
 
 // ----------------------------------------------------------------------------------------- validateFindings
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function cut(s: string, max: number): string {
   const cs = [...s];
@@ -244,14 +244,14 @@ function run(cmd: string, args: string[], input: string, env: NodeJS.ProcessEnv)
   });
 }
 
-async function writeJson(file: string, value: unknown): Promise<void> {
+export async function writeJson(file: string, value: unknown): Promise<void> {
   // Write then rename, so Ctrl-C never leaves a half-written file that a resumed run would trust.
   const tmp = `${file}.${process.pid}.tmp`;
   await writeFile(tmp, JSON.stringify(value, null, 2) + '\n', 'utf8');
   await rename(tmp, file);
 }
 
-const sha256 = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
+export const sha256 = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
 const count = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 async function chunkIds(outDir: string, chunk: ManifestChunk): Promise<Set<number>> {
@@ -263,13 +263,36 @@ async function chunkIds(outDir: string, chunk: ManifestChunk): Promise<Set<numbe
   return ids;
 }
 
-/** Analyze one chunk with `claude -p` and write findings/NNN.json. */
-export async function runChunk(opts: RunChunkOptions): Promise<ChunkFindings> {
-  const { claude, outDir, chunk } = opts;
-  const findingsDir = path.join(outDir, 'findings');
-  await mkdir(findingsDir, { recursive: true });
-  const prompt = await readFile(path.join(outDir, chunk.promptFile), 'utf8');
-  const ids = await chunkIds(outDir, chunk);
+export interface CallClaudeOptions {
+  claude: string;
+  /** Where mcp-none.json is written. */
+  outDir: string;
+  /** Sent on stdin. */
+  prompt: string;
+  model?: string | undefined;
+  env?: NodeJS.ProcessEnv;
+  /** Heads every error message, e.g. "chunk 3" (default "claude"). */
+  label?: string | undefined;
+}
+
+export interface ClaudeReply {
+  /** The model's answer, as it wrote it. */
+  text: string;
+  usage: Usage;
+  costUsd: number;
+  durationMs: number;
+  /** The model that answered, as Claude Code reports it; the --model asked for, or null, when it does not. */
+  model: string | null;
+}
+
+/**
+ * One `claude -p` call with Rimoo's own system prompt, no tools and no MCP servers.
+ * Throws with what claude said when it exits without a successful JSON result.
+ */
+export async function callClaude(opts: CallClaudeOptions): Promise<ClaudeReply> {
+  const { claude, outDir, prompt } = opts;
+  const label = opts.label ?? 'claude';
+  await mkdir(outDir, { recursive: true });
   // No MCP servers: an empty config plus --strict-mcp-config ignores the user's own.
   const mcpConfig = path.join(outDir, 'mcp-none.json');
   await writeFile(mcpConfig, '{"mcpServers":{}}\n', 'utf8');
@@ -291,7 +314,6 @@ export async function runChunk(opts: RunChunkOptions): Promise<ChunkFindings> {
   delete env.CLAUDECODE; // started from inside Claude Code, the child would otherwise see itself as nested
   const started = Date.now();
   const res = await run(claude, args, prompt, env);
-  const label = `chunk ${chunk.index}`;
 
   let reply: Record<string, unknown>;
   try {
@@ -315,16 +337,6 @@ export async function runChunk(opts: RunChunkOptions): Promise<ChunkFindings> {
     const said = res.stderr.trim().slice(0, 500);
     throw new Error(`${label}: claude exited with code ${res.code}${said ? `: ${said}` : ''}`);
   }
-  const text = typeof reply.result === 'string' ? reply.result : '';
-  let validated: { findings: Finding[]; dropped: Dropped };
-  try {
-    validated = validateFindings(parseReply(text), ids);
-  } catch {
-    const rawFile = path.join(findingsDir, `${num(chunk.index)}.raw.txt`);
-    await writeFile(rawFile, text, 'utf8');
-    throw new Error(`${label}: the reply was not the JSON asked for; it is saved in ${rawFile}`);
-  }
-
   const u = isObject(reply.usage) ? reply.usage : {};
   const usage: Usage = {
     input: count(u.input_tokens),
@@ -336,13 +348,39 @@ export async function runChunk(opts: RunChunkOptions): Promise<ChunkFindings> {
   };
   usage.total = usage.input + usage.cacheCreation + usage.cacheRead + usage.output;
   const models = isObject(reply.modelUsage) ? Object.keys(reply.modelUsage) : [];
-  const result: ChunkFindings = {
-    chunk: chunk.index,
-    promptSha256: sha256(prompt),
-    model: models.length > 0 ? models.join(', ') : (opts.model ?? null),
+  return {
+    text: typeof reply.result === 'string' ? reply.result : '',
     usage,
     costUsd: count(reply.total_cost_usd),
     durationMs: typeof reply.duration_ms === 'number' ? reply.duration_ms : Date.now() - started,
+    model: models.length > 0 ? models.join(', ') : (opts.model ?? null),
+  };
+}
+
+/** Analyze one chunk with `claude -p` and write findings/NNN.json. */
+export async function runChunk(opts: RunChunkOptions): Promise<ChunkFindings> {
+  const { outDir, chunk } = opts;
+  const findingsDir = path.join(outDir, 'findings');
+  await mkdir(findingsDir, { recursive: true });
+  const prompt = await readFile(path.join(outDir, chunk.promptFile), 'utf8');
+  const ids = await chunkIds(outDir, chunk);
+  const label = `chunk ${chunk.index}`;
+  const reply = await callClaude({ claude: opts.claude, outDir, prompt, model: opts.model, env: opts.env, label });
+  let validated: { findings: Finding[]; dropped: Dropped };
+  try {
+    validated = validateFindings(parseReply(reply.text), ids);
+  } catch {
+    const rawFile = path.join(findingsDir, `${num(chunk.index)}.raw.txt`);
+    await writeFile(rawFile, reply.text, 'utf8');
+    throw new Error(`${label}: the reply was not the JSON asked for; it is saved in ${rawFile}`);
+  }
+  const result: ChunkFindings = {
+    chunk: chunk.index,
+    promptSha256: sha256(prompt),
+    model: reply.model,
+    usage: reply.usage,
+    costUsd: reply.costUsd,
+    durationMs: reply.durationMs,
     findings: validated.findings,
     dropped: validated.dropped,
   };
@@ -381,7 +419,7 @@ export interface RunAllOptions {
   onProgress?: (p: Progress) => void;
 }
 
-const zeroUsage = (): Usage => ({ input: 0, cacheCreation: 0, cacheRead: 0, output: 0, thinking: 0, total: 0 });
+export const zeroUsage = (): Usage => ({ input: 0, cacheCreation: 0, cacheRead: 0, output: 0, thinking: 0, total: 0 });
 
 /**
  * Run every manifest chunk in order, skipping finished ones unless force, then write findings/usage.json.

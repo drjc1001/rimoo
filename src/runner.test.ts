@@ -299,7 +299,7 @@ test('runAll: runs in order, adds up usage.json, then resumes, reruns with force
     assert.deepEqual(again.tokens, s.tokens);
 
     // A chunk whose prompt changed since (history grew, other filters) is not trusted.
-    await writeFile(path.join(outDir, 'prompts', '002.md'), 'This is part 2 of 3: changed\n');
+    await writeFile(path.join(outDir, 'prompts', '002.md'), 'This is part 2: changed\n');
     const changed = await runAll({ claude: fake.claude, outDir, manifest, env });
     assert.deepEqual((await readCalls(fake.log)).slice(3).map((c) => c.part), [2]);
     assert.equal(changed.chunksSkipped, 2);

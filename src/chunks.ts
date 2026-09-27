@@ -123,9 +123,16 @@ function cut(s: string, max: number): string {
   return cs.length > max ? cs.slice(0, max).join('') : s;
 }
 
+/** Rows of one chunk as the prompt shows them: by project, then time, so each project gets one header. */
+function groupByProject(rows: ChunkRow[]): ChunkRow[] {
+  return [...rows].sort((a, b) => a.project.localeCompare(b.project) || a.ts.localeCompare(b.ts) || a.id - b.id);
+}
+
 /**
- * Filter, keep instructions only, sort by project then time, and cut into consecutive chunks of at most
- * chunkSize rows whose prompt file stays within maxChars.
+ * Filter, keep instructions only, and cut into consecutive chunks of at most chunkSize rows whose prompt file
+ * stays within maxChars. Chunk membership follows time: history only ever grows at the end, so new prompts
+ * change the last chunk and leave every earlier chunk, and its finished findings, exactly as they were.
+ * Inside a chunk the rows are grouped by project for the prompt.
  */
 export function prepareChunks(prompts: Prompt[], opts: ChunkOptions): Prepared {
   const dropped = { slash: 0, short: 0, empty: 0 };
@@ -137,7 +144,7 @@ export function prepareChunks(prompts: Prompt[], opts: ChunkOptions): Prepared {
     if (kind === 'instruction') kept.push(p);
     else dropped[kind]++;
   }
-  kept.sort((a, b) => a.project.localeCompare(b.project) || a.timestamp - b.timestamp || a.id - b.id);
+  kept.sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
   const rows: ChunkRow[] = kept.map((p) => ({
     id: p.id,
     ts: localDateTime(p.timestamp),
@@ -146,26 +153,27 @@ export function prepareChunks(prompts: Prompt[], opts: ChunkOptions): Prepared {
   }));
   const maxChars = opts.maxChars ?? MAX_CHUNK_CHARS;
   // Instructions around the data, with room for the part numbers and message count to grow.
-  const overhead = chars(buildPrompt({ index: 1, total: 1, rows: [] })) + 20;
+  const overhead = chars(buildPrompt({ index: 1, rows: [] })) + 20;
   const all: ChunkRow[][] = [];
   let current: ChunkRow[] = [];
   let size = overhead;
-  let project: string | undefined;
+  let projects = new Set<string>();
   for (const row of rows) {
     const lineCost = chars(dataLine(row)) + 1;
     const headerCost = chars(projectHeader(row.project)) + 1;
-    let cost = lineCost + (row.project === project ? 0 : headerCost);
+    let cost = lineCost + (projects.has(row.project) ? 0 : headerCost);
     if (current.length > 0 && (current.length >= opts.chunkSize || size + cost > maxChars)) {
-      all.push(current);
+      all.push(groupByProject(current));
       current = [];
       size = overhead;
+      projects = new Set();
       cost = lineCost + headerCost;
     }
     current.push(row);
+    projects.add(row.project);
     size += cost;
-    project = row.project;
   }
-  if (current.length > 0) all.push(current);
+  if (current.length > 0) all.push(groupByProject(current));
   return {
     candidates: rows.length,
     dropped,
@@ -194,13 +202,11 @@ export async function writeChunks(
     await mkdir(dir, { recursive: true });
   }
   const entries: ManifestChunk[] = [];
-  // Numbered against every chunk, so a --sample run writes the same prompt the full run would.
-  const total = prepared.totalChunks;
   for (const [i, rows] of prepared.chunks.entries()) {
     const index = i + 1;
     const file = `chunks/${num(index)}.jsonl`;
     const promptFile = `prompts/${num(index)}.md`;
-    const prompt = buildPrompt({ index, total, rows });
+    const prompt = buildPrompt({ index, rows });
     await writeFile(path.join(outDir, file), rows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
     await writeFile(path.join(outDir, promptFile), prompt, 'utf8');
     const times = rows.map((r) => r.ts).sort();
@@ -219,7 +225,7 @@ export async function writeChunks(
   const estimate = tokenEstimate(entries.map((e) => e.tokens));
   // Chunks cut away by --sample are costed without being written.
   const rest = prepared.all.slice(prepared.chunks.length).map((rows, j) =>
-    estimateTokens(buildPrompt({ index: prepared.chunks.length + j + 1, total, rows })),
+    estimateTokens(buildPrompt({ index: prepared.chunks.length + j + 1, rows })),
   );
   const estimateFull = tokenEstimate([...entries.map((e) => e.tokens), ...rest]);
   const manifest: Manifest = {
