@@ -22,7 +22,7 @@
   ],
   "type": "module",
   "bin": {
-    "rimoo": "./dist/cli.js"
+    "rimoo": "dist/cli.js"
   },
   "files": [
     "dist",

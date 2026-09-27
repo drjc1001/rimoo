@@ -34,3 +34,9 @@ created: 2026-09-27
 - 全量若用 Sonnet：工具自己外推約 273 萬 tokens、11.81 美元、序跑 2 小時。
 - 需求段的「180 萬」是校準前的數字，改成 220 萬。
 - **還沒做、等 Jasper 的**：LICENSE（MIT？）、GitHub 帳號／組織、`package.json` 的 repository／author、`npm publish`、乾淨目錄 `npx rimoo analyze` 驗證、Windows 實測。
+
+## 發佈紀錄 2026-09-27（Fable）
+- GitHub：https://github.com/drjc1001/rimoo（main，MIT，About 與 topics 用 `gh` 填）。PR #1 加 `prepare` 腳本，`npx github:drjc1001/rimoo` 才跑得起來。
+- npm：`rimoo@0.1.0`，2026-09-27 16:05 UTC 由 Jasper 在真實終端機用 passkey 2FA 發佈（`!` 或子程序沒有 TTY，npm 只會報 EOTP）。npm 帳號名也叫 rimoo。
+- 驗證：`npm view rimoo` 版本 0.1.0、19 個檔、122 KB；乾淨目錄 `npx rimoo@0.1.0 analyze --prepare-only` 跑到統計與切段。
+- 收尾：`npm pkg fix` 修 bin 路徑寫法（這張 PR）。Windows 仍未實測。
