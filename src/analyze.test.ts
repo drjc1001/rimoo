@@ -4,6 +4,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runAnalyze } from './analyze.ts';
+import { Readable } from 'node:stream';
+import { readdir } from 'node:fs/promises';
+import { makeFakeClaude, readCalls } from './fake-claude.test.ts';
 
 function capture() {
   const out: string[] = [];
@@ -93,4 +96,152 @@ test('runAnalyze: writes stats.json, prints summary, warns about unreadable line
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// ------------------------------------------------------------------------ T-004: running Claude Code (fake)
+
+const posixOnly = process.platform === 'win32' ? 'the fake claude is a POSIX script' : false;
+
+/** A history of six instructions, cut into three chunks with chunkSize 2. */
+async function historyFixture(dir: string): Promise<string> {
+  const file = path.join(dir, 'h.jsonl');
+  const lines = [1, 2, 3, 4, 5, 6].map((i) =>
+    JSON.stringify({
+      display: `instruction number ${i} for the toy app`,
+      timestamp: new Date(2026, 6, 10 + i, 12).getTime(),
+      project: '/r/toy-app',
+    }),
+  );
+  await writeFile(file, lines.join('\n') + '\n');
+  return file;
+}
+
+const tty = (answer: string) => Object.assign(Readable.from([answer]), { isTTY: true });
+const pipe = () => Object.assign(Readable.from([]), { isTTY: false });
+
+async function withFake(fn: (ctx: { dir: string; history: string; env: NodeJS.ProcessEnv; log: string }) => Promise<void>) {
+  const dir = await mkdtemp(path.join(tmpdir(), 'rimoo-'));
+  const fake = await makeFakeClaude();
+  try {
+    const history = await historyFixture(dir);
+    await fn({ dir, history, env: { PATH: fake.dir, FAKE_CLAUDE_LOG: fake.log }, log: fake.log });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(fake.dir, { recursive: true, force: true });
+  }
+}
+
+test('runAnalyze --yes: runs every chunk, prints progress and totals, saves findings/', { skip: posixOnly }, async () => {
+  await withFake(async ({ dir, history, env, log }) => {
+    const c = capture();
+    const code = await runAnalyze({
+      historyPath: history, chunkSize: 2, yes: true, env, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr,
+    });
+    assert.equal(code, 0, c.err.join(''));
+    const out = c.out.join('');
+    assert.match(out, /Analyze with Claude Code\n {2}3 chunks to run · about [\d,]+ tokens \(estimate\)\n/);
+    assert.doesNotMatch(out, /\[y\/N\]/);
+    assert.match(out, / {2}chunk 1\/3 · 1,160 tokens · \$0\.01 · 4 s · 1 finding \(2 dropped, 2 quotes dropped\)\n/);
+    assert.match(out, / {2}chunk 3\/3 · 1,160 tokens/);
+    assert.match(out, /Analyzed 3 chunks this run\n {2}3 chunks finished: 3,480 tokens · \$0\.04 · 3 findings \(6 dropped, 6 quotes dropped\)\n/);
+    assert.match(out, / {4}= 30 input \+ 300 cache writes \+ 3,000 cache reads \+ 150 output \(60 of it thinking\)\n/);
+    assert.match(out, /counts toward your plan's usage/);
+    assert.doesNotMatch(out, /--sample/);
+    assert.match(out, /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json and rimoo-out\/findings\/\n$/);
+    assert.deepEqual((await readCalls(log)).map((x) => x.part), [1, 2, 3]);
+    const files = (await readdir(path.join(dir, 'rimoo-out', 'findings'))).sort();
+    assert.deepEqual(files, ['001.json', '002.json', '003.json', 'usage.json']);
+    const usage = JSON.parse(await readFile(path.join(dir, 'rimoo-out', 'findings', 'usage.json'), 'utf8'));
+    assert.equal(usage.tokens.total, 3480);
+
+    // Second run: everything is kept, nothing is sent, no question asked.
+    const again = capture();
+    assert.equal(
+      await runAnalyze({ historyPath: history, chunkSize: 2, env, cwd: dir, stdin: pipe(), stdout: again.stdout, stderr: again.stderr }),
+      0,
+    );
+    assert.match(again.out.join(''), /All 3 chunks already have findings; pass --force to analyze them again\.\n/);
+    assert.match(again.out.join(''), /chunk 2\/3 · already done, kept/);
+    assert.equal((await readCalls(log)).length, 3);
+  });
+});
+
+test('runAnalyze: asks y/N on a terminal; n sends nothing, y runs', { skip: posixOnly }, async () => {
+  await withFake(async ({ dir, history, env, log }) => {
+    const no = capture();
+    const base = { historyPath: history, chunkSize: 2, sample: 1, env, cwd: dir };
+    assert.equal(await runAnalyze({ ...base, stdin: tty('n\n'), stdout: no.stdout, stderr: no.stderr }), 0);
+    assert.match(no.out.join(''), /Run 1 chunk now\? \[y\/N\] Nothing was sent to Claude\.\n/);
+    assert.deepEqual(await readCalls(log), []);
+
+    const yes = capture();
+    assert.equal(await runAnalyze({ ...base, stdin: tty('y\n'), stdout: yes.stdout, stderr: yes.stderr }), 0);
+    const out = yes.out.join('');
+    assert.match(out, /Run 1 chunk now\? \[y\/N\] \s*chunk 1\/3 · 1,160 tokens/);
+    // --sample: real use against the estimate, and what all chunks would take at that rate.
+    assert.match(out, / {2}1 chunk used 1,160 tokens \(estimate was [\d,]+\); all 3 chunks ≈ [\d,]+ at this rate\n/);
+    assert.match(out, / {2}About \$0\.04 and 13 s for all 3 chunks one at a time; --concurrency 4 runs up to 4 at once, --model <name> changes the model\n/);
+    assert.match(out, / {2}Run again without --sample to analyze the rest; finished chunks are kept\.\n/);
+    assert.equal((await readCalls(log)).length, 1);
+  });
+});
+
+test('runAnalyze: no terminal and no --yes exits 2 before sending anything', { skip: posixOnly }, async () => {
+  await withFake(async ({ dir, history, env, log }) => {
+    const c = capture();
+    const code = await runAnalyze({ historyPath: history, chunkSize: 2, env, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr });
+    assert.equal(code, 2);
+    assert.match(c.out.join(''), /3 chunks to run · about [\d,]+ tokens/);
+    assert.match(c.err.join(''), /Pass --yes to run\./);
+    assert.deepEqual(await readCalls(log), []);
+  });
+});
+
+test('runAnalyze --prepare-only: stops after the prompts, exit 0, claude never called', { skip: posixOnly }, async () => {
+  await withFake(async ({ dir, history, env, log }) => {
+    const c = capture();
+    const code = await runAnalyze({
+      historyPath: history, chunkSize: 2, prepareOnly: true, yes: true, env, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr,
+    });
+    assert.equal(code, 0);
+    assert.doesNotMatch(c.out.join(''), /Analyze with Claude Code/);
+    assert.match(c.out.join(''), /and rimoo-out\/manifest\.json\n$/);
+    assert.deepEqual(await readCalls(log), []);
+  });
+});
+
+test('runAnalyze: claude not on PATH points at the prompts and exits 0', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'rimoo-'));
+  try {
+    const history = await historyFixture(dir);
+    const c = capture();
+    const code = await runAnalyze({
+      historyPath: history, yes: true, env: { PATH: dir }, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr,
+    });
+    assert.equal(code, 0);
+    assert.match(
+      c.out.join(''),
+      /Claude Code \(the `claude` command\) was not found on PATH, so nothing was analyzed\.\n {2}The prompts in rimoo-out\/prompts\/ are ready to paste into Claude yourself/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('runAnalyze: a failing chunk stops the run, keeps what finished, exits 1', { skip: posixOnly }, async () => {
+  await withFake(async ({ dir, history, env, log }) => {
+    const c = capture();
+    const code = await runAnalyze({
+      historyPath: history, chunkSize: 2, yes: true, env: { ...env, FAKE_CLAUDE_FAIL_ON: '2' }, cwd: dir, stdin: pipe(),
+      stdout: c.stdout, stderr: c.stderr,
+    });
+    assert.equal(code, 1);
+    const out = c.out.join('');
+    assert.match(out, / {2}chunk 2\/3 · failed: chunk 2: Claude usage limit reached\n/);
+    assert.match(out, /Analyzed 1 chunk this run, 1 failed\n/);
+    assert.match(out, /Finished chunks are kept in rimoo-out\/findings\/; run the same command again to continue\.\n/);
+    assert.doesNotMatch(out, /chunk 3\/3/);
+    assert.deepEqual((await readCalls(log)).map((x) => x.part), [1, 2]);
+    assert.deepEqual((await readdir(path.join(dir, 'rimoo-out', 'findings'))).sort(), ['001.json', 'usage.json']);
+  });
 });

@@ -2,8 +2,21 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { locateHistory, parseHistory } from './history.ts';
 import { computeStats } from './stats.ts';
-import { DEFAULT_CHUNK_SIZE, prepareChunks, writeChunks } from './chunks.ts';
-import { formatPrepared, formatRepeated, formatSaved, formatSummary, n } from './format.ts';
+import { DEFAULT_CHUNK_SIZE, prepareChunks, writeChunks, type ManifestChunk } from './chunks.ts';
+import { createInterface } from 'node:readline';
+import {
+  formatLargeHistory,
+  formatPrepared,
+  formatProgress,
+  formatRepeated,
+  formatRunPlan,
+  formatRunTotal,
+  formatSaved,
+  formatSummary,
+  n,
+} from './format.ts';
+import { findClaude, finishedChunk, runAll } from './runner.ts';
+import { estimateChunkTokens } from './tokens.ts';
 import { DEFAULT_SIMILARITY, forExport, groupRepeated } from './repeated.ts';
 
 export interface AnalyzeOptions {
@@ -19,6 +32,21 @@ export interface AnalyzeOptions {
   since?: string | undefined;
   /** Write only the first n chunks. */
   sample?: number | undefined;
+  /** Stop after writing chunks and prompts; do not run Claude Code. */
+  prepareOnly?: boolean | undefined;
+  /** Run without asking first. */
+  yes?: boolean | undefined;
+  /** Chunks analyzed at once, 1 to 4. */
+  concurrency?: number | undefined;
+  /** Analyze chunks again even if they already have findings. */
+  force?: boolean | undefined;
+  /** Passed to `claude --model` as is. */
+  model?: string | undefined;
+  /**
+   * Where the y/N answer is read from. Without it (a caller that wired no input) analyze stops after
+   * preparing, as with prepareOnly.
+   */
+  stdin?: (NodeJS.ReadableStream & { isTTY?: boolean }) | undefined;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
   stdout: (text: string) => void;
@@ -87,12 +115,85 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
     formatSummary(stats) +
       formatRepeated(repeated) +
       formatPrepared(manifest, display(path.join(outDir, 'prompts'))) +
-      formatSaved([display(outFile), display(repeatedFile), display(manifestFile)]),
+      formatLargeHistory(manifest),
   );
+  const saved = [display(outFile), display(repeatedFile), display(manifestFile)];
+  const code = await analyzeChunks();
+  opts.stdout(formatSaved(saved));
   if (parsed.badLines.length > 0) {
     const shown = parsed.badLines.slice(0, 5).join(', ');
     const more = parsed.badLines.length > 5 ? `, … (${n(parsed.badLines.length)} total)` : '';
     opts.stderr(`Warning: skipped ${n(parsed.badLines.length)} unreadable line(s): ${shown}${more}\n`);
   }
-  return 0;
+  return code;
+
+  /** The language-model pass. Returns the exit code; adds findings/ to `saved` when it ran. */
+  async function analyzeChunks(): Promise<number> {
+    if (opts.prepareOnly || manifest.chunks.length === 0 || opts.stdin === undefined) return 0;
+    const promptDir = display(path.join(outDir, 'prompts'));
+    const claude = await findClaude(env);
+    if (claude === null) {
+      opts.stdout(
+        'Claude Code (the `claude` command) was not found on PATH, so nothing was analyzed.\n' +
+          `  The prompts in ${promptDir}/ are ready to paste into Claude yourself, one chunk at a time.\n\n`,
+      );
+      return 0;
+    }
+    const toRun: ManifestChunk[] = [];
+    for (const c of manifest.chunks) if (opts.force || (await finishedChunk(outDir, c)) === null) toRun.push(c);
+    const kept = manifest.chunks.length - toRun.length;
+    const estimateOf = (cs: typeof toRun): number => cs.reduce((a, c) => a + estimateChunkTokens(c.tokens), 0);
+    if (toRun.length === 0) {
+      opts.stdout(`All ${n(kept)} chunks already have findings; pass --force to analyze them again.\n`);
+    } else {
+      opts.stdout(formatRunPlan(toRun, kept, estimateOf(toRun)));
+      if (!opts.yes) {
+        if (!opts.stdin!.isTTY) {
+          opts.stderr('Not running: there is no terminal to ask for a yes. Pass --yes to run.\n');
+          return 2;
+        }
+        const question = `Run ${toRun.length === 1 ? '1 chunk' : `${n(toRun.length)} chunks`} now? [y/N] `;
+        if (!(await confirm(opts.stdin!, opts.stdout, question))) {
+          opts.stdout('Nothing was sent to Claude.\n\n');
+          return 0;
+        }
+      }
+    }
+    const findingsDir = display(path.join(outDir, 'findings'));
+    const summary = await runAll({
+      claude,
+      outDir,
+      manifest,
+      concurrency: opts.concurrency,
+      force: opts.force,
+      model: opts.model,
+      env,
+      onProgress: (p) => opts.stdout(formatProgress(p)),
+    });
+    const failed = new Set(summary.chunksFailed);
+    const finishedChunks: ManifestChunk[] = [];
+    for (const c of manifest.chunks) if (!failed.has(c.index) && (await finishedChunk(outDir, c))) finishedChunks.push(c);
+    opts.stdout(formatRunTotal({ summary, manifest, findingsDir, estimateFinished: estimateOf(finishedChunks) }));
+    saved.push(`${findingsDir}/`);
+    return summary.chunksFailed.length > 0 ? 1 : 0;
+  }
+}
+
+/** Ask a y/N question on the given input; anything but y or yes, or no answer at all, is no. */
+async function confirm(
+  input: NodeJS.ReadableStream,
+  write: (text: string) => void,
+  question: string,
+): Promise<boolean> {
+  write(question);
+  const rl = createInterface({ input, terminal: false });
+  try {
+    const answer = await new Promise<string | null>((resolve) => {
+      rl.once('line', resolve);
+      rl.once('close', () => resolve(null));
+    });
+    return answer !== null && /^\s*y(es)?\s*$/i.test(answer);
+  } finally {
+    rl.close();
+  }
 }

@@ -1,4 +1,5 @@
-import type { Manifest } from './chunks.ts';
+import type { Manifest, ManifestChunk } from './chunks.ts';
+import { LARGE_HISTORY_CHUNKS, LARGE_HISTORY_TOKENS, type Progress, type UsageSummary } from './runner.ts';
 import { CALL_OVERHEAD_TOKENS } from './tokens.ts';
 import type { RepeatedGroup, Repeated } from './repeated.ts';
 import type { Stats } from './stats.ts';
@@ -93,7 +94,8 @@ export function formatPrepared(m: Manifest, promptDir: string): string {
         ' (estimate; a run reports the real count)',
     );
     lines.push(
-      `    = ${n(e.promptTokens)} in the prompts + ${n(e.calls)} calls × about ${n(CALL_OVERHEAD_TOKENS)} that Claude Code adds itself`,
+      `    = ${n(e.promptTokens)} in the prompts + ${n(e.calls)} calls × ${n(CALL_OVERHEAD_TOKENS)} overhead` +
+        ` + about ${n(e.outputTokens)} of output (the answers and the model's thinking)`,
     );
     if (m.chunks.length < m.totalChunks) {
       lines.push(
@@ -109,4 +111,105 @@ export function formatPrepared(m: Manifest, promptDir: string): string {
 export function formatSaved(files: string[]): string {
   if (files.length <= 2) return `Saved ${files.join(' and ')}\n`;
   return `Saved ${files.slice(0, -1).join(', ')} and ${files[files.length - 1]}\n`;
+}
+
+/** Two extra lines under the estimate when the history is large; empty otherwise. */
+export function formatLargeHistory(m: Manifest): string {
+  if (m.estimateFull.totalTokens <= LARGE_HISTORY_TOKENS && m.totalChunks <= LARGE_HISTORY_CHUNKS) return '';
+  return (
+    '  This is a large history.\n' +
+    '  Narrow it with --since <date> or --project <text>, or run it in several sittings: finished chunks are kept' +
+    ' and the next run picks up where this one stopped.\n\n'
+  );
+}
+
+const usd = (v: number): string => `$${v.toFixed(2)}`;
+
+/** 5 s → "5 s", 429,000 → "7 min 9 s", 11,200,000 → "3 h 7 min". */
+export function duration(ms: number): string {
+  const total = Math.round(ms / 1000);
+  if (total < 60) return `${total} s`;
+  if (total < 3600) return `${Math.floor(total / 60)} min ${total % 60} s`;
+  return `${Math.floor(total / 3600)} h ${Math.floor((total % 3600) / 60)} min`;
+}
+
+/** 41 s, 3 min 5 s */
+export function seconds(ms: number): string {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
+}
+
+const plural = (v: number, one: string, many: string): string => `${n(v)} ${v === 1 ? one : many}`;
+
+/** "31 findings (2 dropped, 3 quotes dropped)", leaving out whatever is zero. */
+function findingsText(findings: number, dropped: { findings: number; evidence: number }): string {
+  const extra: string[] = [];
+  if (dropped.findings > 0) extra.push(`${n(dropped.findings)} dropped`);
+  if (dropped.evidence > 0) extra.push(`${plural(dropped.evidence, 'quote', 'quotes')} dropped`);
+  return `${plural(findings, 'finding', 'findings')}${extra.length > 0 ? ` (${extra.join(', ')})` : ''}`;
+}
+
+/** What is about to run, printed before the y/N question. */
+export function formatRunPlan(toRun: ManifestChunk[], kept: number, estimate: number): string {
+  const lines = ['Analyze with Claude Code'];
+  lines.push(
+    `  ${plural(toRun.length, 'chunk', 'chunks')} to run · about ${n(estimate)} tokens (estimate)` +
+      (kept > 0 ? ` · ${n(kept)} already done, kept` : ''),
+  );
+  return lines.join('\n') + '\n';
+}
+
+/** One line per chunk as it finishes. */
+export function formatProgress(p: Progress): string {
+  const head = `chunk ${p.chunk.index}/${p.total}`;
+  if (p.kind === 'skipped') return `  ${head} · already done, kept\n`;
+  if (p.kind === 'failed') return `  ${head} · failed: ${p.error.message}\n`;
+  const r = p.result;
+  return `  ${head} · ${n(r.usage.total)} tokens · ${usd(r.costUsd)} · ${seconds(r.durationMs)} · ${findingsText(r.findings.length, r.dropped)}\n`;
+}
+
+export interface RunTotalInput {
+  summary: UsageSummary;
+  manifest: Manifest;
+  /** Where findings are kept, as the caller wants it shown. */
+  findingsDir: string;
+  /** Estimated tokens for the chunks that have findings, to compare with what they really used. */
+  estimateFinished: number;
+}
+
+/** Totals after a run, the --sample extrapolation, and what to do after a failure. */
+export function formatRunTotal({ summary: s, manifest: m, findingsDir, estimateFinished }: RunTotalInput): string {
+  const lines: string[] = [];
+  const finished = s.chunksRun + s.chunksSkipped;
+  lines.push('');
+  lines.push(
+    `Analyzed ${plural(s.chunksRun, 'chunk', 'chunks')} this run` +
+      (s.chunksSkipped > 0 ? `, ${n(s.chunksSkipped)} kept from before` : '') +
+      (s.chunksFailed.length > 0 ? `, ${n(s.chunksFailed.length)} failed` : ''),
+  );
+  lines.push(
+    `  ${plural(finished, 'chunk', 'chunks')} finished: ${n(s.tokens.total)} tokens · ${usd(s.costUsd)} · ${findingsText(s.findings, s.dropped)}`,
+  );
+  lines.push(
+    `    = ${n(s.tokens.input)} input + ${n(s.tokens.cacheCreation)} cache writes + ${n(s.tokens.cacheRead)} cache reads + ${n(s.tokens.output)} output` +
+      (s.tokens.thinking > 0 ? ` (${n(s.tokens.thinking)} of it thinking)` : ''),
+  );
+  lines.push("  Cost is Claude Code's own figure at API prices; on a Claude subscription it counts toward your plan's usage instead.");
+  if (s.chunksFailed.length > 0) {
+    lines.push(`  Finished chunks are kept in ${findingsDir}/; run the same command again to continue.`);
+  } else if (m.chunks.length < m.totalChunks && finished > 0) {
+    const all = estimateFinished > 0 ? Math.round((s.tokens.total / estimateFinished) * m.estimateFull.totalTokens) : 0;
+    lines.push(
+      `  ${plural(finished, 'chunk', 'chunks')} used ${n(s.tokens.total)} tokens (estimate was ${n(estimateFinished)}); ` +
+        `all ${n(m.totalChunks)} chunks ≈ ${n(all)} at this rate`,
+    );
+    const perChunk = (v: number): number => v / finished;
+    lines.push(
+      `  About ${usd(perChunk(s.costUsd) * m.totalChunks)} and ${duration(perChunk(s.durationMs) * m.totalChunks)} for all ${n(m.totalChunks)} chunks` +
+        ` one at a time; --concurrency 4 runs up to 4 at once, --model <name> changes the model`,
+    );
+    lines.push('  Run again without --sample to analyze the rest; finished chunks are kept.');
+  }
+  lines.push('');
+  return lines.join('\n') + '\n';
 }
