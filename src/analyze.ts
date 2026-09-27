@@ -24,6 +24,7 @@ import { DEFAULT_SIMILARITY, forExport, groupRepeated } from './repeated.ts';
 import { planMerge, runMerge, type Merged } from './merge.ts';
 import { formatGate, formatTopRules, writeExports, type ExportFile } from './exports.ts';
 import { projectNames, type Hit } from './privacy.ts';
+import { attachTranscripts, loadTranscripts, transcriptsDir } from './transcripts.ts';
 
 export interface AnalyzeOptions {
   historyPath?: string | undefined;
@@ -48,6 +49,8 @@ export interface AnalyzeOptions {
   force?: boolean | undefined;
   /** Passed to `claude --model` as is. */
   model?: string | undefined;
+  /** Give short prompts Claude's previous message, read from the session transcripts next to the history. */
+  withTranscripts?: boolean | undefined;
   /** Keep file paths in CLAUDE.md, SKILL.md, workstyle.json and share.txt. */
   allowPaths?: boolean | undefined;
   /**
@@ -106,13 +109,28 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
     'utf8',
   );
 
+  let transcripts: Map<number, string | undefined> | undefined;
+  let sessionFiles: { files: number; opened: number } | undefined;
+  const sessionDir = transcriptsDir(historyPath);
+  if (opts.withTranscripts) {
+    const loaded = await loadTranscripts({ dir: sessionDir, sessionIds: parsed.prompts.map((p) => p.sessionId) });
+    transcripts = attachTranscripts(parsed.prompts, loaded);
+    sessionFiles = { files: loaded.files, opened: loaded.opened };
+  }
   const chunkOpts = {
     chunkSize: opts.chunkSize ?? DEFAULT_CHUNK_SIZE,
     project: opts.project,
     since: opts.since,
     sample: opts.sample,
+    transcripts,
   };
-  const manifest = await writeChunks(outDir, prepareChunks(parsed.prompts, chunkOpts), chunkOpts);
+  const manifest = await writeChunks(
+    outDir,
+    prepareChunks(parsed.prompts, chunkOpts),
+    chunkOpts,
+    undefined,
+    sessionFiles,
+  );
   const manifestFile = path.join(outDir, 'manifest.json');
 
   const display = (file: string): string => {
@@ -122,7 +140,7 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
   opts.stdout(
     formatSummary(stats) +
       formatRepeated(repeated) +
-      formatPrepared(manifest, display(path.join(outDir, 'prompts'))) +
+      formatPrepared(manifest, display(path.join(outDir, 'prompts')), display(sessionDir)) +
       formatLargeHistory(manifest),
   );
   const saved = [display(outFile), display(repeatedFile), display(manifestFile)];

@@ -184,3 +184,9 @@ test('parseArgs: --allow-paths is a flag, listed in the help', () => {
   assert.deepEqual(parseArgs(['analyze', '--allow-paths=yes']).errors, ['Option --allow-paths takes no value']);
   assert.ok(HELP.includes('--allow-paths'));
 });
+
+test('parseArgs: --with-transcripts is a flag, off unless given, listed in the help', () => {
+  assert.deepEqual(parseArgs(['analyze', '--with-transcripts']).options, { 'with-transcripts': true });
+  assert.deepEqual(parseArgs(['analyze', '--with-transcripts=1']).errors, ['Option --with-transcripts takes no value']);
+  assert.ok(HELP.includes('--with-transcripts'));
+});

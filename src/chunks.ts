@@ -24,6 +24,8 @@ export interface ChunkRow {
   project: string;
   /** What was typed, cut to MAX_TEXT characters. Paste placeholders stay; pasted contents were never read. */
   text: string;
+  /** Claude's previous message, cut to BEFORE_MAX characters; only on short prompts, only with --with-transcripts. */
+  before?: string;
 }
 
 export interface ChunkOptions {
@@ -36,6 +38,8 @@ export interface ChunkOptions {
   since?: string | undefined;
   /** Keep only the first n chunks. */
   sample?: number | undefined;
+  /** From attachTranscripts: matched prompt ids, with Claude's previous message for the short ones. */
+  transcripts?: Map<number, string | undefined> | undefined;
 }
 
 export interface Prepared {
@@ -49,6 +53,8 @@ export interface Prepared {
   chunks: ChunkRow[][];
   /** Every chunk, before --sample. */
   all: ChunkRow[][];
+  /** Candidates found in a transcript, and how many of them carry Claude's previous message; null without transcripts. */
+  transcripts: { matched: number; attached: number } | null;
 }
 
 export function tokenEstimate(promptTokens: number[]): TokenEstimate {
@@ -98,6 +104,17 @@ export interface Manifest {
   estimate: TokenEstimate;
   /** What all totalChunks would cost; same as estimate unless --sample. */
   estimateFull: TokenEstimate;
+  /** --with-transcripts: session files found and opened, candidates found in them, and how many carry Claude's previous message. Null without the flag. */
+  transcripts: TranscriptsSummary | null;
+}
+
+export interface TranscriptsSummary {
+  enabled: true;
+  files: number;
+  opened: number;
+  candidates: number;
+  matched: number;
+  attached: number;
 }
 
 const pad = (n: number): string => String(n).padStart(2, '0');
@@ -145,15 +162,30 @@ export function prepareChunks(prompts: Prompt[], opts: ChunkOptions): Prepared {
     else dropped[kind]++;
   }
   kept.sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
-  const rows: ChunkRow[] = kept.map((p) => ({
-    id: p.id,
-    ts: localDateTime(p.timestamp),
-    project: p.project === '' ? '(unknown)' : p.project,
-    text: cut(p.display, MAX_TEXT),
-  }));
+  let matched = 0;
+  let attached = 0;
+  const rows: ChunkRow[] = kept.map((p) => {
+    const row: ChunkRow = {
+      id: p.id,
+      ts: localDateTime(p.timestamp),
+      project: p.project === '' ? '(unknown)' : p.project,
+      text: cut(p.display, MAX_TEXT),
+    };
+    if (opts.transcripts?.has(p.id)) {
+      matched++;
+      const before = opts.transcripts.get(p.id);
+      if (before !== undefined) {
+        row.before = before;
+        attached++;
+      }
+    }
+    return row;
+  });
+  const transcripts = opts.transcripts === undefined ? null : { matched, attached };
+  const withBefore = attached > 0;
   const maxChars = opts.maxChars ?? MAX_CHUNK_CHARS;
   // Instructions around the data, with room for the part numbers and message count to grow.
-  const overhead = chars(buildPrompt({ index: 1, rows: [] })) + 20;
+  const overhead = chars(buildPrompt({ index: 1, rows: [], transcripts: withBefore })) + 20;
   const all: ChunkRow[][] = [];
   let current: ChunkRow[] = [];
   let size = overhead;
@@ -180,6 +212,7 @@ export function prepareChunks(prompts: Prompt[], opts: ChunkOptions): Prepared {
     totalChunks: all.length,
     chunks: opts.sample === undefined ? all : all.slice(0, opts.sample),
     all,
+    transcripts,
   };
 }
 
@@ -194,7 +227,10 @@ export async function writeChunks(
   prepared: Prepared,
   opts: ChunkOptions,
   now: Date = new Date(),
+  /** Session files found and opened by loadTranscripts, when --with-transcripts is on. */
+  sessionFiles?: { files: number; opened: number } | undefined,
 ): Promise<Manifest> {
+  const withBefore = (prepared.transcripts?.attached ?? 0) > 0;
   const chunkDir = path.join(outDir, 'chunks');
   const promptDir = path.join(outDir, 'prompts');
   for (const dir of [chunkDir, promptDir]) {
@@ -206,7 +242,7 @@ export async function writeChunks(
     const index = i + 1;
     const file = `chunks/${num(index)}.jsonl`;
     const promptFile = `prompts/${num(index)}.md`;
-    const prompt = buildPrompt({ index, rows });
+    const prompt = buildPrompt({ index, rows, transcripts: withBefore });
     await writeFile(path.join(outDir, file), rows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
     await writeFile(path.join(outDir, promptFile), prompt, 'utf8');
     const times = rows.map((r) => r.ts).sort();
@@ -225,7 +261,7 @@ export async function writeChunks(
   const estimate = tokenEstimate(entries.map((e) => e.tokens));
   // Chunks cut away by --sample are costed without being written.
   const rest = prepared.all.slice(prepared.chunks.length).map((rows, j) =>
-    estimateTokens(buildPrompt({ index: prepared.chunks.length + j + 1, rows })),
+    estimateTokens(buildPrompt({ index: prepared.chunks.length + j + 1, rows, transcripts: withBefore })),
   );
   const estimateFull = tokenEstimate([...entries.map((e) => e.tokens), ...rest]);
   const manifest: Manifest = {
@@ -239,6 +275,17 @@ export async function writeChunks(
     chunks: entries,
     estimate,
     estimateFull,
+    transcripts:
+      prepared.transcripts === null
+        ? null
+        : {
+            enabled: true,
+            files: sessionFiles?.files ?? 0,
+            opened: sessionFiles?.opened ?? 0,
+            candidates: prepared.candidates,
+            matched: prepared.transcripts.matched,
+            attached: prepared.transcripts.attached,
+          },
   };
   await writeFile(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
   return manifest;
