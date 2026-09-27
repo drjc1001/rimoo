@@ -3,6 +3,7 @@ import { LARGE_HISTORY_CHUNKS, LARGE_HISTORY_TOKENS, type Progress, type UsageSu
 import { CALL_OVERHEAD_TOKENS } from './tokens.ts';
 import type { RepeatedGroup, Repeated } from './repeated.ts';
 import type { Stats } from './stats.ts';
+import type { Merged, MergeProgress } from './merge.ts';
 
 export const n = (v: number): string => v.toLocaleString('en-US');
 
@@ -212,4 +213,38 @@ export function formatRunTotal({ summary: s, manifest: m, findingsDir, estimateF
   }
   lines.push('');
   return lines.join('\n') + '\n';
+}
+
+/** What the merge is about to do, printed before it runs (and before the y/N question when one is asked). */
+export function formatMergePlan(findings: number, calls: number, estimate: number): string {
+  return (
+    `Merge findings into rules with Claude Code\n` +
+    `  ${plural(findings, 'finding', 'findings')} · ${plural(calls, 'call', 'calls')} (one per category) · about ${n(estimate)} tokens (estimate)\n`
+  );
+}
+
+/** One line per category as its merge call finishes. */
+export function formatMergeProgress(p: MergeProgress): string {
+  const d = p.dropped;
+  const extra: string[] = [];
+  if (d.unknown > 0) extra.push(`${plural(d.unknown, 'unknown index', 'unknown indexes')} dropped`);
+  if (d.duplicate > 0) extra.push(`${plural(d.duplicate, 'repeated index', 'repeated indexes')} dropped`);
+  if (d.groups > 0) extra.push(`${plural(d.groups, 'group', 'groups')} dropped`);
+  return (
+    `  ${p.category} · ${n(p.usage.total)} tokens · ${usd(p.costUsd)} · ${seconds(p.durationMs)} · ` +
+    `${plural(p.findings, 'finding', 'findings')} → ${plural(p.rules, 'rule', 'rules')}` +
+    (extra.length > 0 ? ` (${extra.join(', ')})` : '') +
+    '\n'
+  );
+}
+
+/** After the merge: its totals, or that an earlier merge of the same findings was reused. */
+export function formatMergeTotal(m: Merged, reused: boolean): string {
+  if (reused) {
+    return `Findings unchanged since the last merge; kept its ${plural(m.rules.length, 'rule', 'rules')}. Pass --force to merge again.\n\n`;
+  }
+  return (
+    `  Merged ${plural(m.findings, 'finding', 'findings')} into ${plural(m.rules.length, 'rule', 'rules')}: ` +
+    `${n(m.usage.total)} tokens · ${usd(m.costUsd)}\n\n`
+  );
 }
