@@ -71,7 +71,11 @@ test('runAnalyze: writes stats.json, prints summary, warns about unreadable line
     assert.match(out, /Most repeated instructions \(top 20\)\n {2}\(none\)/);
     assert.match(out, /Short replies \(top 10\)\n {2}1 {2}1 {2}2026-01-10 → 2026-01-10 {2}a\n/);
     assert.match(out, /Slash commands \(top 10\)\n {2}1 {2}1 {2}2026-01-10 → 2026-01-10 {2}\/compact\n/);
-    assert.match(out, /Saved custom-out\/stats\.json and custom-out\/repeated\.json\n$/);
+    assert.match(out, /Prepared for analysis\n {2}0 prompts kept · dropped 1 slash command, 1 short reply, 0 empty or paste-only\n {2}Nothing to analyze/);
+    assert.match(
+      out,
+      /Saved custom-out\/stats\.json, custom-out\/repeated\.json and custom-out\/manifest\.json\n$/,
+    );
     const repeated = JSON.parse(await readFile(path.join(dir, 'custom-out', 'repeated.json'), 'utf8'));
     assert.deepEqual(Object.keys(repeated), [
       'generatedAt',

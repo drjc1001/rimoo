@@ -12,6 +12,8 @@ created: 2026-09-27
 - 預設一次跑 1 段，`--concurrency` 最多 4（依據：079 掃描同時開 4 個子代理沒被限流）。
 - 解析回傳 JSON；每條 finding 的 evidence id 必須存在於該段，不存在的丟掉並印丟掉幾條（不靜默）。存 `rimoo-out/findings/NNN.json`。
 - 續跑：已有 findings 的段跳過；`--force` 重跑。
+- **實際用量要讓使用者看到**（Jasper 2026-09-27 提的：不講清楚花費，用了覺得沒用會被罵）：每段跑完讀 `claude -p --output-format json` 回傳的 `usage`（input＋cache_creation＋cache_read＋output）與 `total_cost_usd`，印該段實際 tokens 與定價換算；`--sample` 跑完印「N 段實際 X tokens → 全 M 段外推 Y，manifest 估算是 Z」再問要不要全跑；全部跑完在終端與 `rimoo-out/findings/usage.json` 留總計。
+- 估算（`tokens.ts`）與實測差超過三成，就把換算率改成實測值並記在票裡。
 - 測試：用假的 `claude` 可執行檔（回固定 JSON）跑整條路徑；證據驗證的 fixture。
 ## 被誰擋住
 - T-003。

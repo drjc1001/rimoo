@@ -2,7 +2,8 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { locateHistory, parseHistory } from './history.ts';
 import { computeStats } from './stats.ts';
-import { formatRepeated, formatSaved, formatSummary, n } from './format.ts';
+import { DEFAULT_CHUNK_SIZE, prepareChunks, writeChunks } from './chunks.ts';
+import { formatPrepared, formatRepeated, formatSaved, formatSummary, n } from './format.ts';
 import { DEFAULT_SIMILARITY, forExport, groupRepeated } from './repeated.ts';
 
 export interface AnalyzeOptions {
@@ -10,6 +11,14 @@ export interface AnalyzeOptions {
   outDir?: string | undefined;
   /** Trigram Jaccard threshold for folding near-identical instructions, 0 to 1. */
   similarity?: number | undefined;
+  /** Prompts per chunk for the language-model pass. */
+  chunkSize?: number | undefined;
+  /** Only chunk prompts whose project path contains this. */
+  project?: string | undefined;
+  /** Only chunk prompts on or after this local date, YYYY-MM-DD. */
+  since?: string | undefined;
+  /** Write only the first n chunks. */
+  sample?: number | undefined;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
   stdout: (text: string) => void;
@@ -61,11 +70,25 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
     'utf8',
   );
 
+  const chunkOpts = {
+    chunkSize: opts.chunkSize ?? DEFAULT_CHUNK_SIZE,
+    project: opts.project,
+    since: opts.since,
+    sample: opts.sample,
+  };
+  const manifest = await writeChunks(outDir, prepareChunks(parsed.prompts, chunkOpts), chunkOpts);
+  const manifestFile = path.join(outDir, 'manifest.json');
+
   const display = (file: string): string => {
     const rel = path.relative(cwd, file);
     return rel === '' || rel.startsWith('..') || path.isAbsolute(rel) ? file : rel;
   };
-  opts.stdout(formatSummary(stats) + formatRepeated(repeated) + formatSaved([display(outFile), display(repeatedFile)]));
+  opts.stdout(
+    formatSummary(stats) +
+      formatRepeated(repeated) +
+      formatPrepared(manifest, display(path.join(outDir, 'prompts'))) +
+      formatSaved([display(outFile), display(repeatedFile), display(manifestFile)]),
+  );
   if (parsed.badLines.length > 0) {
     const shown = parsed.badLines.slice(0, 5).join(', ');
     const more = parsed.badLines.length > 5 ? `, … (${n(parsed.badLines.length)} total)` : '';

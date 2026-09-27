@@ -1,3 +1,5 @@
+import type { Manifest } from './chunks.ts';
+import { CALL_OVERHEAD_TOKENS } from './tokens.ts';
 import type { RepeatedGroup, Repeated } from './repeated.ts';
 import type { Stats } from './stats.ts';
 
@@ -67,6 +69,44 @@ export function formatRepeated(r: Repeated): string {
   ].join('\n');
 }
 
+/** What was prepared for the language-model pass; promptDir is how the caller wants the folder shown. */
+export function formatPrepared(m: Manifest, promptDir: string): string {
+  const d = m.dropped;
+  const plural = (v: number, one: string, many: string): string => `${n(v)} ${v === 1 ? one : many}`;
+  const lines = ['Prepared for analysis'];
+  lines.push(
+    `  ${plural(m.candidates, 'prompt', 'prompts')} kept · dropped ${plural(d.slash, 'slash command', 'slash commands')}, ` +
+      `${plural(d.short, 'short reply', 'short replies')}, ${n(d.empty)} empty or paste-only`,
+  );
+  if (m.chunks.length === 0) {
+    lines.push('  Nothing to analyze with these filters');
+  } else {
+    const largest = Math.max(...m.chunks.map((c) => c.chars));
+    const sampled = m.chunks.length < m.totalChunks ? ` (first ${n(m.chunks.length)} of ${n(m.totalChunks)})` : '';
+    lines.push(
+      `  ${plural(m.chunks.length, 'chunk', 'chunks')} of up to ${n(m.chunkSize)} prompts or ${n(m.maxChars)} characters${sampled}` +
+        ` · largest ${n(largest)} characters`,
+    );
+    const e = m.estimateFull;
+    lines.push(
+      `  About ${n(e.totalTokens)} tokens to analyze all ${n(m.totalChunks)} ${m.totalChunks === 1 ? 'chunk' : 'chunks'}` +
+        ' (estimate; a run reports the real count)',
+    );
+    lines.push(
+      `    = ${n(e.promptTokens)} in the prompts + ${n(e.calls)} calls × about ${n(CALL_OVERHEAD_TOKENS)} that Claude Code adds itself`,
+    );
+    if (m.chunks.length < m.totalChunks) {
+      lines.push(
+        `  This sample of ${n(m.chunks.length)} ${m.chunks.length === 1 ? 'chunk' : 'chunks'}: about ${n(m.estimate.totalTokens)} tokens`,
+      );
+    }
+    lines.push(`  Prompts written to ${promptDir}/ (one ready-to-run prompt per chunk)`);
+  }
+  lines.push('');
+  return lines.join('\n') + '\n';
+}
+
 export function formatSaved(files: string[]): string {
-  return `Saved ${files.join(' and ')}\n`;
+  if (files.length <= 2) return `Saved ${files.join(' and ')}\n`;
+  return `Saved ${files.slice(0, -1).join(', ')} and ${files[files.length - 1]}\n`;
 }

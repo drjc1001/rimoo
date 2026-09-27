@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Prompt } from './history.ts';
-import { forExport, groupRepeated, jaccard, normalize, stripPoliteness, trigrams } from './repeated.ts';
+import { classify, forExport, groupRepeated, jaccard, normalize, stripPoliteness, trigrams } from './repeated.ts';
 
 // Noon UTC keeps the local calendar date identical in every timezone from UTC-11 to UTC+11.
 const at = (y: number, m: number, d: number) => Date.UTC(y, m - 1, d, 12);
@@ -243,4 +243,18 @@ test('forExport: keeps groups seen at least twice and counts the rest', () => {
   assert.deepEqual(e.shortReplies, []);
   assert.deepEqual(e.slashCommands, []);
   assert.deepEqual(e.singletons, { instructions: 1, shortReplies: 1, slashCommands: 1 });
+});
+
+test('classify: the four buckets groupRepeated uses', () => {
+  assert.deepEqual(classify(prompt('/compact')), { kind: 'slash', key: '/compact', label: '/compact' });
+  assert.equal(classify(prompt('/data/repos/app')).kind, 'instruction');
+  assert.deepEqual(classify(prompt('[Pasted text #1 +3 lines]')), { kind: 'empty', key: '', label: '' });
+  assert.deepEqual(classify(prompt('  ?! ')), { kind: 'empty', key: '', label: '' });
+  assert.deepEqual(classify(prompt('Please continue.')), { kind: 'short', key: 'continue', label: 'please continue' });
+  assert.deepEqual(classify(prompt('yes please')), { kind: 'short', key: 'yes please', label: 'yes please' });
+  assert.deepEqual(classify(prompt('Merged, and please help me deploy')), {
+    kind: 'instruction',
+    key: 'merged help me deploy',
+    label: 'merged and please help me deploy',
+  });
 });
