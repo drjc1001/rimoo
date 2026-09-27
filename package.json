@@ -1,0 +1,26 @@
+{
+  "name": "rimoo",
+  "version": "0.1.0",
+  "description": "Remember how you work. Analyze your Claude Code history locally and discover the working patterns hidden in it.",
+  "type": "module",
+  "bin": {
+    "rimoo": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}
