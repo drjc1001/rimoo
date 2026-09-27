@@ -1,4 +1,5 @@
 import { runAnalyze } from './analyze.ts';
+import { DEFAULT_CHUNK_SIZE, isDate } from './chunks.ts';
 import { DEFAULT_SIMILARITY } from './repeated.ts';
 
 export const HELP = `rimoo — Remember how you work.
@@ -10,6 +11,10 @@ Options:
   --history <path>   history.jsonl to read (default: ~/.claude/history.jsonl)
   --out <dir>        where to write results (default: ./rimoo-out)
   --similarity <0-1> how alike two instructions must be to count as one (default: ${DEFAULT_SIMILARITY})
+  --project <text>   only analyze projects whose path contains this text
+  --since <date>     only analyze prompts from this date on, YYYY-MM-DD
+  --sample <n>       write only the first n chunks, for a quick trial run
+  --chunk-size <n>   prompts per chunk (default: ${DEFAULT_CHUNK_SIZE.toLocaleString('en-US')})
   -h, --help         show this help
 `;
 
@@ -22,7 +27,7 @@ export interface ParsedArgs {
 /** Tiny argv parser: one positional command, `--key value`, `--key=value`, `-h`. */
 export function parseArgs(argv: string[]): ParsedArgs {
   const out: ParsedArgs = { options: {}, errors: [] };
-  const takesValue = new Set(['history', 'out', 'similarity']);
+  const takesValue = new Set(['history', 'out', 'similarity', 'project', 'since', 'sample', 'chunk-size']);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === '-h' || arg === '--help') {
@@ -70,6 +75,20 @@ export async function main(argv: string[], io: Io): Promise<number> {
       errors.push(`Option --similarity must be a number from 0 to 1, got: ${options.similarity}`);
     }
   }
+  const positive = (key: 'sample' | 'chunk-size'): number | undefined => {
+    const raw = options[key];
+    if (typeof raw !== 'string') return undefined;
+    if (!/^\d+$/.test(raw.trim()) || Number(raw) < 1) {
+      errors.push(`Option --${key} must be a whole number of 1 or more, got: ${raw}`);
+      return undefined;
+    }
+    return Number(raw);
+  };
+  const sample = positive('sample');
+  const chunkSize = positive('chunk-size');
+  if (typeof options.since === 'string' && !isDate(options.since)) {
+    errors.push(`Option --since must be a date written YYYY-MM-DD, got: ${options.since}`);
+  }
   if (errors.length > 0) {
     io.stderr(errors.join('\n') + '\n\n' + HELP);
     return 2;
@@ -79,6 +98,10 @@ export async function main(argv: string[], io: Io): Promise<number> {
     historyPath: str(options.history),
     outDir: str(options.out),
     similarity,
+    chunkSize,
+    project: str(options.project),
+    since: str(options.since),
+    sample,
     env: io.env,
     cwd: io.cwd,
     stdout: io.stdout,

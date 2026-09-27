@@ -8,6 +8,7 @@ created: 2026-09-27
 ---
 ## 需求
 - README：§13 的四句（名字、tagline、一句說明、`npx rimoo analyze`）＋隱私一段（全部本機、只呼叫你自己的 Claude Code、貼上內容不送出）＋輸出檔案說明。不做 landing page。
+- **「會花多少」放在安裝指令旁邊，不藏在後面**（Jasper 2026-09-27）：用真實例子講（約 24,000 則、一年的 history → 24 次呼叫、約 180 萬 tokens，走你自己的 Claude Code 訂閱），建議先 `--sample 2` 看實際用量再全跑；工具本身跑之前也會印估算。
 - LICENSE（MIT，Jasper 定）。`package.json` 的 name＝`rimoo`（2026-09-27 npm 404，沒人用）、`files` 只含 dist。
 - `npm publish` 前在乾淨目錄 `npx rimoo analyze` 跑一次。
 ## 被誰擋住

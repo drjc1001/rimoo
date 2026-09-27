@@ -69,3 +69,52 @@ test('main: --similarity reaches repeated.json', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('main: --since must be a real YYYY-MM-DD date, --sample and --chunk-size whole numbers of 1 or more', async () => {
+  const cases: [string[], RegExp][] = [
+    [['--since', '2026-13-01'], /--since must be a date written YYYY-MM-DD, got: 2026-13-01/],
+    [['--since', 'last week'], /--since must be a date written YYYY-MM-DD/],
+    [['--chunk-size', '0'], /--chunk-size must be a whole number of 1 or more, got: 0/],
+    [['--chunk-size', '1.5'], /--chunk-size must be a whole number of 1 or more/],
+    [['--sample', '-2'], /--sample must be a whole number of 1 or more/],
+    [['--sample', 'abc'], /--sample must be a whole number of 1 or more/],
+  ];
+  for (const [flags, message] of cases) {
+    const err: string[] = [];
+    const code = await main(['analyze', ...flags, '--history', '/nonexistent'], {
+      stdout: () => {},
+      stderr: (t) => err.push(t),
+    });
+    assert.equal(code, 2, flags.join(' '));
+    assert.match(err.join(''), message);
+  }
+  for (const flag of ['--project <text>', '--since <date>', '--sample <n>', '--chunk-size <n>'])
+    assert.ok(HELP.includes(flag), flag);
+});
+
+test('main: chunk flags reach manifest.json', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'rimoo-'));
+  try {
+    const file = path.join(dir, 'h.jsonl');
+    const lines = [1, 2, 3].map((i) =>
+      JSON.stringify({
+        display: `instruction number ${i} for the toy app`,
+        timestamp: Date.UTC(2026, 6, 10 + i, 12),
+        project: '/r/toy-app',
+      }),
+    );
+    await writeFile(file, lines.join('\n') + '\n');
+    const code = await main(
+      ['analyze', '--history', file, '--project', 'toy', '--since', '2026-07-01', '--sample', '1', '--chunk-size', '2'],
+      { stdout: () => {}, stderr: () => {}, cwd: dir },
+    );
+    assert.equal(code, 0);
+    const m = JSON.parse(await readFile(path.join(dir, 'rimoo-out', 'manifest.json'), 'utf8'));
+    assert.deepEqual(m.filters, { project: 'toy', since: '2026-07-01', sample: 1 });
+    assert.equal(m.chunkSize, 2);
+    assert.equal(m.totalChunks, 2);
+    assert.equal(m.chunks.length, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

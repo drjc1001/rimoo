@@ -233,29 +233,50 @@ function finish(g: Acc, withVariants: boolean): RepeatedGroup {
   return out;
 }
 
+export type Kind = 'slash' | 'short' | 'instruction' | 'empty';
+
+export interface Classified {
+  kind: Kind;
+  /** Matching key: the command for slash commands, normalized text without politeness words otherwise. */
+  key: string;
+  /** The normalized wording as typed; what a table shows. */
+  label: string;
+}
+
+/**
+ * Sort one prompt into the bucket T-002 groups it in, and T-003 filters on:
+ *   slash       — "/compact", "/model opus" (paths like "/data/repos" are not commands)
+ *   empty       — nothing left after dropping paste placeholders and punctuation
+ *   short       — at most SHORT_REPLY_LIMIT characters once politeness words are gone ("go ahead", "繼續")
+ *   instruction — everything else
+ */
+export function classify(p: Prompt): Classified {
+  const command = slashCommand(p.display);
+  if (command !== null) return { kind: 'slash', key: command, label: command };
+  const norm = normalize(p.display);
+  if (norm === '') return { kind: 'empty', key: '', label: '' };
+  const stripped = stripPoliteness(norm);
+  if (stripped === '') return { kind: 'short', key: norm, label: norm };
+  if (length(stripped) <= SHORT_REPLY_LIMIT) return { kind: 'short', key: stripped, label: norm };
+  return { kind: 'instruction', key: stripped, label: norm };
+}
+
 export function groupRepeated(prompts: Prompt[], opts: GroupOptions): Repeated {
-  const slash = new Map<string, Acc>();
-  const short = new Map<string, Acc>();
-  const instr = new Map<string, Acc>();
+  const buckets: Record<Exclude<Kind, 'empty'>, Map<string, Acc>> = {
+    slash: new Map(),
+    short: new Map(),
+    instruction: new Map(),
+  };
   for (const p of [...prompts].sort((a, b) => a.id - b.id)) {
-    const command = slashCommand(p.display);
-    if (command !== null) {
-      add(slash, command, command, p);
-      continue;
-    }
-    const norm = normalize(p.display);
-    if (norm === '') continue;
-    const stripped = stripPoliteness(norm);
-    if (stripped === '') add(short, norm, norm, p);
-    else if (length(stripped) <= SHORT_REPLY_LIMIT) add(short, stripped, norm, p);
-    else add(instr, stripped, norm, p);
+    const c = classify(p);
+    if (c.kind !== 'empty') add(buckets[c.kind], c.key, c.label, p);
   }
   return {
-    instructions: mergeNear([...instr.values()], opts.similarity)
+    instructions: mergeNear([...buckets.instruction.values()], opts.similarity)
       .map((g) => finish(g, true))
       .sort(byCount),
-    shortReplies: [...short.values()].map((g) => finish(g, false)).sort(byCount),
-    slashCommands: [...slash.values()].map((g) => finish(g, false)).sort(byCount),
+    shortReplies: [...buckets.short.values()].map((g) => finish(g, false)).sort(byCount),
+    slashCommands: [...buckets.slash.values()].map((g) => finish(g, false)).sort(byCount),
   };
 }
 
