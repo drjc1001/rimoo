@@ -1,3 +1,7 @@
 node_modules/
 dist/
 rimoo-out/
+
+# External notes stay local by default (public repo); only docs/README.md is tracked
+docs/*
+!docs/README.md

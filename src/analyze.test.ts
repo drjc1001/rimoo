@@ -6,7 +6,8 @@ import path from 'node:path';
 import { runAnalyze } from './analyze.ts';
 import { Readable } from 'node:stream';
 import { readdir } from 'node:fs/promises';
-import { makeFakeClaude, readCalls, readMergeCalls } from './fake-claude.test.ts';
+import { makeFakeChrome, makeFakeClaude, readCalls, readChromeCalls, readMergeCalls, readTranslateCalls } from './fake-claude.test.ts';
+import { TRANSLATE_SYSTEM_PROMPT } from './translate-template.ts';
 import { FIXTURE_RULES, quoteOf, writeFindingsFixture } from './findings-fixture.test.ts';
 import type { Manifest } from './chunks.ts';
 
@@ -151,7 +152,7 @@ test('runAnalyze --yes: runs every chunk, prints progress and totals, saves find
     assert.doesNotMatch(out, /--sample/);
     assert.match(
       out,
-      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json and rimoo-out\/share\.txt\n$/,
+      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\n$/,
     );
     assert.deepEqual((await readCalls(log)).map((x) => x.part), [1, 2, 3]);
     const files = (await readdir(path.join(dir, 'rimoo-out', 'findings'))).sort();
@@ -289,10 +290,10 @@ test('runAnalyze: chunks done → merge → four exports, the §8 summary and Sa
           `2\\. ${FIXTURE_RULES.P}（出現於 1 段、4 則）\n`,
       ),
     );
-    assert.match(out, /\n6\. 不要客套話。（出現於 1 段、2 則）\n\nSaved /);
+    assert.match(out, /\n6\. 不要客套話。（出現於 1 段、2 則）\n\nOpen share\.html in a browser and take a screenshot to get the image\.\n\nSaved /);
     assert.match(
       out,
-      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json and rimoo-out\/share\.txt\n$/,
+      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\n$/,
     );
     const o = path.join(dir, 'rimoo-out');
     const [report, claudeMd, skill, workstyle] = await Promise.all(
@@ -376,5 +377,83 @@ test('runAnalyze: a failed chunk means no merge; a failed merge exits 1 and keep
     assert.match(m.out.join(''), / {2}Merge failed: merge communication: Claude usage limit reached\n {2}The findings are kept; run the same command again to merge\.\n/);
     assert.equal((await readdir(path.join(dir, 'rimoo-out', 'findings'))).length, 4);
     await assert.rejects(readFile(path.join(dir, 'rimoo-out', 'merged.json')));
+  });
+});
+
+// ------------------------------------------------------------------------ T-018: share card, --lang en (fake)
+
+test('runAnalyze --lang en: one translation call on the first export, kept in merged.json, none on the next', { skip: posixOnly }, async () => {
+  await withFindings(async ({ dir, history, env }) => {
+    const translateLog = path.join(dir, 'translate.jsonl');
+    const base = { historyPath: history, chunkSize: 2, yes: true, lang: 'en' as const, env: { ...env, FAKE_CLAUDE_TRANSLATE_LOG: translateLog }, cwd: dir };
+    const c = capture();
+    assert.equal(await runAnalyze({ ...base, stdin: pipe(), stdout: c.stdout, stderr: c.stderr }), 0, c.err.join(''));
+    const calls = await readTranslateCalls(translateLog);
+    assert.equal(calls.length, 1);
+    const args = calls[0]!.args;
+    assert.deepEqual(args.slice(0, 7), ['-p', '--setting-sources', '', '--output-format', 'json', '--system-prompt', TRANSLATE_SYSTEM_PROMPT]);
+    assert.ok(args.includes('--no-session-persistence'));
+    // Only Chinese titles are sent; the fake merge's first rule already has an English title.
+    assert.ok(calls[0]!.titles.length >= 1 && calls[0]!.titles.every((t) => /[一-鿿]/.test(t)), JSON.stringify(calls[0]!.titles));
+    assert.match(c.out.join(''), new RegExp(`Translating ${calls[0]!.titles.length} titles? into English for the share card with Claude Code\\n`));
+
+    const o = path.join(dir, 'rimoo-out');
+    const merged = JSON.parse(await readFile(path.join(o, 'merged.json'), 'utf8')) as { rules: { title: string | null; rule: string; titleEn?: string }[] };
+    const translated = merged.rules.filter((r) => r.titleEn !== undefined);
+    assert.equal(translated.length, calls[0]!.titles.length);
+    assert.deepEqual(translated.map((r) => r.title ?? r.rule), calls[0]!.titles);
+    assert.equal(translated[0]!.titleEn, 'English title 1');
+
+    const share = await readFile(path.join(o, 'share.txt'), 'utf8');
+    assert.match(share, /^My AI coding workstyle\n/);
+    assert.match(share, /• English title 1\n/);
+    const html = await readFile(path.join(o, 'share.html'), 'utf8');
+    assert.ok(html.includes('English title 1'));
+    assert.ok(html.includes('What I keep telling my coding agent'));
+
+    const again = capture();
+    assert.equal(await runAnalyze({ ...base, stdin: pipe(), stdout: again.stdout, stderr: again.stderr }), 0, again.err.join(''));
+    assert.equal((await readTranslateCalls(translateLog)).length, 1);
+    assert.doesNotMatch(again.out.join(''), /Translating/);
+    assert.match(again.out.join(''), /Findings unchanged since the last merge/);
+  });
+});
+
+test('runAnalyze: without --lang no translation call; share.html in the rules\' own language', { skip: posixOnly }, async () => {
+  await withFindings(async ({ dir, history, env }) => {
+    const translateLog = path.join(dir, 'translate.jsonl');
+    const c = capture();
+    const code = await runAnalyze({
+      historyPath: history, chunkSize: 2, yes: true, env: { ...env, FAKE_CLAUDE_TRANSLATE_LOG: translateLog }, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr,
+    });
+    assert.equal(code, 0, c.err.join(''));
+    assert.deepEqual(await readTranslateCalls(translateLog), []);
+    const html = await readFile(path.join(dir, 'rimoo-out', 'share.html'), 'utf8');
+    assert.ok(html.includes('我一直在教 AI 的事'));
+    assert.doesNotMatch(html, /toy-app/); // the project name in the most repeated line is gated
+  });
+});
+
+test('runAnalyze: with a Chrome on PATH share.png is made at the card size and saved', { skip: posixOnly }, async () => {
+  await withFindings(async ({ dir, history, env }) => {
+    const chrome = await makeFakeChrome();
+    try {
+      const c = capture();
+      const code = await runAnalyze({
+        historyPath: history, chunkSize: 2, yes: true, cardSize: { w: 1200, h: 627 },
+        env: { ...env, PATH: `${env.PATH}:${chrome.dir}`, FAKE_CHROME_LOG: chrome.log }, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr,
+      });
+      assert.equal(code, 0, c.err.join(''));
+      const png = path.join(dir, 'rimoo-out', 'share.png');
+      const [args] = await readChromeCalls(chrome.log);
+      assert.ok(args!.includes(`--screenshot=${png}`));
+      assert.ok(args!.includes('--window-size=1200,627'));
+      assert.equal(await readFile(png, 'utf8'), 'PNG');
+      assert.match(c.out.join(''), /\nSaved rimoo-out\/share\.png\n/);
+      assert.doesNotMatch(c.out.join(''), /take a screenshot/);
+      assert.match(await readFile(path.join(dir, 'rimoo-out', 'share.html'), 'utf8'), /width: 1200px; height: 627px/);
+    } finally {
+      await rm(chrome.dir, { recursive: true, force: true });
+    }
   });
 });

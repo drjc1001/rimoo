@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { locateHistory, parseHistory } from './history.ts';
 import { computeStats } from './stats.ts';
@@ -25,6 +25,8 @@ import { planMerge, runMerge, type Merged } from './merge.ts';
 import { formatGate, formatTopRules, writeExports, type ExportFile } from './exports.ts';
 import { projectNames, type Hit } from './privacy.ts';
 import { attachTranscripts, loadTranscripts, transcriptsDir } from './transcripts.ts';
+import { DEFAULT_CARD_SIZE, findChrome, screenshotCard, type CardSize } from './card.ts';
+import { needsTranslation, translateTitles } from './translate-template.ts';
 
 export interface AnalyzeOptions {
   historyPath?: string | undefined;
@@ -51,8 +53,12 @@ export interface AnalyzeOptions {
   model?: string | undefined;
   /** Give short prompts Claude's previous message, read from the session transcripts next to the history. */
   withTranscripts?: boolean | undefined;
-  /** Keep file paths in CLAUDE.md, SKILL.md, workstyle.json and share.txt. */
+  /** Keep file paths in CLAUDE.md, SKILL.md, workstyle.json, share.txt and share.html. */
   allowPaths?: boolean | undefined;
+  /** 'en': share.txt and the share card in English, translating the top titles once with Claude Code. */
+  lang?: 'en' | undefined;
+  /** share.html and share.png size (default 1080×1080). */
+  cardSize?: CardSize | undefined;
   /**
    * Where the y/N answer is read from. Without it (a caller that wired no input) analyze stops after
    * preparing, as with prepareOnly.
@@ -249,7 +255,27 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
       }
       opts.stdout(formatMergeTotal(merged, false));
     }
-    const input = { merged, stats };
+    if (opts.lang === 'en') {
+      const todo = needsTranslation(merged).length;
+      if (todo > 0) {
+        opts.stdout(`Translating ${todo === 1 ? '1 title' : `${n(todo)} titles`} into English for the share card with Claude Code\n`);
+        try {
+          await translateTitles({ claude, outDir, merged, model: opts.model, env });
+        } catch (err) {
+          const why = err instanceof Error ? err.message : String(err);
+          opts.stdout(`  ${why}\n  share.txt and share.html keep the original titles; run the same command again to retry.\n`);
+        }
+        opts.stdout('\n');
+      }
+    }
+    const top = repeated.instructions[0];
+    const input = {
+      merged,
+      stats,
+      repeatedTop: top === undefined ? null : { label: top.label, count: top.count },
+      lang: opts.lang,
+      cardSize: opts.cardSize,
+    };
     const removed: { file: ExportFile; hits: Hit[] }[] = [];
     const files = await writeExports(outDir, input, {
       allowPaths: opts.allowPaths,
@@ -259,7 +285,22 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
     opts.stdout(formatTopRules(input) + '\n');
     if (removed.length > 0) opts.stdout(formatGate(removed) + '\n');
     saved.push(...files.map(display));
+    await sharePng(path.join(outDir, 'share.html'));
     return 0;
+  }
+
+  /** share.png from share.html with the Chrome found, or a line on how to make it by hand. */
+  async function sharePng(html: string): Promise<void> {
+    const png = path.join(path.dirname(html), 'share.png');
+    await rm(png, { force: true }); // an image of an earlier card must not stay next to this one
+    const hint = 'Open share.html in a browser and take a screenshot to get the image.\n';
+    const chrome = await findChrome(env);
+    if (chrome === null) {
+      opts.stdout(hint + '\n');
+      return;
+    }
+    const why = await screenshotCard(chrome, html, png, opts.cardSize ?? DEFAULT_CARD_SIZE, { env });
+    opts.stdout(why === null ? `Saved ${display(png)}\n\n` : `  Could not make share.png: ${why}\n${hint}\n`);
   }
 }
 
