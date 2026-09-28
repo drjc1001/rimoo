@@ -1,0 +1,10 @@
+{
+  "name": "rimoo",
+  "version": "0.1.0",
+  "description": "Discover the engineering habits hidden inside your AI coding history. Runs locally on your Claude Code history.",
+  "author": { "name": "Jasper Chang", "url": "https://github.com/drjc1001" },
+  "homepage": "https://github.com/drjc1001/rimoo#readme",
+  "repository": "https://github.com/drjc1001/rimoo",
+  "license": "MIT",
+  "keywords": ["claude-code", "workstyle", "claude-md"]
+}

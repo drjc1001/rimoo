@@ -1,0 +1,15 @@
+{
+  "name": "rimoo",
+  "description": "Rimoo: turn your Claude Code history into a reusable working style, from inside Claude Code.",
+  "owner": {
+    "name": "Jasper Chang",
+    "url": "https://github.com/drjc1001"
+  },
+  "plugins": [
+    {
+      "name": "rimoo",
+      "source": "./plugin/",
+      "description": "Run Rimoo from Claude Code: type /rimoo to analyze your history."
+    }
+  ]
+}
