@@ -23,3 +23,8 @@ created: 2026-09-28
 - 版號兩邊都 0.2.0；build exit 0；測試 147／147。
 - `npm pack --dry-run`：21 個檔、45.4 kB，含 `dist/card.js`、`dist/translate-template.js`；沒有 `plugin/`、`tickets/`、`rimoo-out/`。
 - 發佈與發佈後三項驗收等 Jasper 發完再補。
+
+## 發佈紀錄 2026-09-28（Fable）
+- 第一次 `npm publish` 在 server-02 回 404（PUT）：那台沒登入，npm 對沒權限的 publish 回 404 不回 401。`npm login` 後重發成功，registry 時間 09:02 UTC。
+- 驗收三格：`npm view rimoo version` 0.2.0（dist-tag latest）；乾淨目錄 `npx -y rimoo@0.2.0 analyze --help` 列出 `--lang` 與 `--card-size`；`claude plugin update rimoo@rimoo` 0.1.0 → 0.2.0。
+- 已通知 1001_Social_post 的 session 版號。
