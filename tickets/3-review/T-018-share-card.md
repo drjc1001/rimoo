@@ -49,3 +49,13 @@ created: 2026-09-28
 - PNG（真 Chrome 截、我打開看過）：`/data/repos/1011_Project_Rimoo/rimoo-out/card-dev/share.png`（中文 1080×1080）；另有 `share-1200x627.png`、壓力版 `share-1080x1080-stress.png`／`share-1200x627-stress.png`（五條都用長句、原句塞路徑）。
 - 看圖後修的：1. 1200×627 三個大數字橫排會擋到右欄 → 長方形改成左欄直排數字、右欄五條＋原句＋頁尾，數字靠右對齊；2. 正方形五條允許兩行時，長句會把頁尾擠到底邊 → 五條一律一行、超長省略號，原句最多兩行；3. 原句的次數被擠到下一行 → 原句與次數同一列，原句自己省略。
 - 沒做到／不確定：1. 圖卡的閘拿掉東西時不在終端機列「Removed from share.html」（`share.txt` 會列同樣的標題；原句只在圖卡），要的話再補；2. 本機 Linux 沒有 Noto Sans TC，實際用的是 Noto Sans CJK，英文彎引號會變全形寬；Mac／Windows 會用系統字型，沒實機看過；3. 英文版只用假 claude 驗，真的翻譯呼叫由主代理跑；4. macOS 的 `/Applications/Google Chrome.app` 路徑只在 Mac 上找；在裝了 Chrome 的 Mac 上跑測試，analyze 的「找不到 Chrome」那條會找到真 Chrome 而失敗（Linux 上不會）。要的話讓 `runAnalyze` 可注入 chrome 路徑再修；Mac 上真的截圖也沒實機驗；5. 翻譯只送「中文且還沒有 titleEn」的標題，英文規則的使用者帶 `--lang en` 不會多一次呼叫。
+
+## 審後修正與自驗 2026-09-28（Fable）
+- 修正：1200×627 直式數字欄縮小（數字 96→80px、欄距 56→32px），五條裡原本三條被省略、現在剩第一條（「Write progress notes before compacting」38 字）；內文 28px 底線不動（試過 26px，退回）。翻譯提示多加「每句最多 32 字元」，之後的使用者不會撞到；Jasper 這份的 `titleEn` 已快取，沒重翻。測試對寬版的大數字門檻改 80px。
+- `npm run typecheck` exit 0；`npm test` exit 0，147／147。
+- 全量跑（本機、`rimoo-out/`、四段並行）：24 段 1,845,993 tokens（估 2,173,569，少 15%）、API 定價 $45.98、561 條 findings；合併 7 次呼叫 $2.95 → 149 條規則。輸入凍結為 `rimoo-out/history-frozen-20260928.jsonl`（24,146 行），用它重跑切段 24 段雜湊全同，所以重出圖零重跑。
+- `--lang en` 實跑：翻譯只呼叫一次（五句），寫進 `merged.json` 的 `titleEn`；之後兩次重出（寬版、中文版）log 裡 0 次 `Translating`。
+- 三張圖我打開看過：`rimoo-out/share-en-1080.png`、`rimoo-out/share-en-1200x627.png`、`rimoo-out/share-zh-1080.png`。正方形兩張五條都完整；寬版第一條省略號（上面）。閘：CLAUDE.md／SKILL.md／workstyle.json 各拿掉 1 個專案名，圖卡文字沒有路徑或專案名。
+- 前五條排序是「出現的段數」優先（24、19、17、15、15 段），不是則數；所以第五條 99 則排在 208 則（13 段）前面。圖上只看得到五條、由大到小，不衝突；要改成則數排序另開票。
+- 昨天 2 段 findings 沒被沿用的原因：檔名是照段號（`findings/001.json`＝第 1 段）沒錯；舊的兩份是 `--with-transcripts` 那一輪產的，prompt 含「Claude just said」，雜湊跟這次不帶逐字稿的不同。是設計行為，不是 bug；T-010 快取逐字稿後會穩定。
+- 沒驗到：Mac／Windows 的字型與 Chrome 路徑。

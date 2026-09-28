@@ -12,6 +12,8 @@ export const TRANSLATE_SYSTEM_PROMPT =
 
 /** Most English words per title the prompt asks for. */
 export const MAX_TITLE_WORDS = 6;
+/** Most characters per title, so it fits one line of the card, including the wide one. */
+export const MAX_TITLE_CHARS = 32;
 
 const source = (r: MergedRule): string => (r.title ?? r.rule).replace(/\s*[\r\n]+\s*/g, ' ').trim();
 
@@ -23,7 +25,7 @@ export function needsTranslation(merged: Merged): MergedRule[] {
 export function buildTranslatePrompt(titles: string[]): string {
   return [
     `Translate each of these ${titles.length} habit titles into English.`,
-    `Each one an imperative phrase of at most ${MAX_TITLE_WORDS} words, no full stop at the end, in the same order.`,
+    `Each one an imperative phrase of at most ${MAX_TITLE_WORDS} words and ${MAX_TITLE_CHARS} characters, no full stop at the end, in the same order.`,
     `Reply with JSON only: {"titles": [...]} holding exactly ${titles.length} strings.`,
     '',
     '<titles>',

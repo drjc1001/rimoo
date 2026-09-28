@@ -140,7 +140,7 @@ body {
   font-family: -apple-system, "Segoe UI", "Noto Sans TC", "Noto Sans CJK TC", sans-serif;
   font-size: 30px; line-height: 1.3;
   padding: ${wide ? '48px 56px' : '72px 80px'};
-  display: flex; ${wide ? 'flex-direction: row; gap: 56px;' : 'flex-direction: column; justify-content: space-between;'}
+  display: flex; ${wide ? 'flex-direction: row; gap: 32px;' : 'flex-direction: column; justify-content: space-between;'}
 }
 .col { display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
 .left { flex: 0 0 auto; }
@@ -148,7 +148,7 @@ body {
 header { font-size: ${wide ? 30 : 36}px; font-weight: 700; color: var(--accent); }
 .stats { ${wide ? 'display: grid; grid-template-columns: auto auto; justify-content: start; align-items: baseline; column-gap: 18px; row-gap: 14px;' : 'display: flex; gap: 64px;'} }
 ${wide ? '.stat { display: contents; } .num { text-align: right; }' : ''}
-.num { font-size: ${wide ? 96 : 112}px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+.num { font-size: ${wide ? 80 : 112}px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
 .label { font-size: 28px; color: var(--soft); ${wide ? '' : 'margin-top: 10px;'} }
 h2 { font-size: ${wide ? 30 : 36}px; font-weight: 700; margin-bottom: ${wide ? 10 : 16}px; }
 ol { list-style: none; }

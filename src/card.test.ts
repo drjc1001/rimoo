@@ -65,11 +65,12 @@ test('renderCard: body is exactly the card size, 1080Ã—1080 by default and 1200Ã
   const wide = renderCard(card({ size: { w: 1200, h: 627 } }));
   assert.match(wide, /html, body \{ width: 1200px; height: 627px; overflow: hidden; \}/);
   assert.match(wide, /<body class="wide">/);
-  // Text sizes the card promises: body copy at least 28px, the big numbers at least 96px.
-  for (const html of [renderCard(card()), wide]) {
+  // Text sizes the card promises: body copy at least 28px on both; the big numbers at least 96px on the square,
+  // 80px on the wide one, where the column with the habits needs the room.
+  for (const [html, num] of [[renderCard(card()), 96], [wide, 80]] as const) {
     const sizes = [...html.matchAll(/font-size: (\d+)px/g)].map((m) => Number(m[1]));
     assert.ok(Math.min(...sizes) >= 28, String(sizes));
-    assert.ok(Number(/\.num \{ font-size: (\d+)px/.exec(html)![1]) >= 96);
+    assert.ok(Number(/\.num \{ font-size: (\d+)px/.exec(html)![1]) >= num);
   }
 });
 
