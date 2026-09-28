@@ -55,3 +55,7 @@ created: 2026-09-28
 - `package-lock.json` 版號同步到 0.2.1（之前停在 0.1.0）。`npm pack --dry-run` 含 `dist/install.js`。
 - Opus 的四個自行判斷（外掛第 6 步補 `--sample 2`、`confirm()` 讀完當 no、測試環境設暫存 `CLAUDE_CONFIG_DIR`、HELP 換行）都對，保留。
 - 沒驗：TTY 下「已存在 → 問取代 → 答 y」這條（假 stdin 只能答一題）；Jasper 在對話裡打 `/rimoo` 回 yes 後新對話有 `/my-workstyle`（0.2.1 發了才測得到）。
+
+## 發佈紀錄 2026-09-28（Fable）
+- PR #7 merged；`rimoo@0.2.1` 14:26 UTC 上 npm（registry 慢 40 秒才露出）；`npx -y rimoo@0.2.1 analyze --help` 列出 `--install-skill`／`--skill-name`／`--force-skill`；`claude plugin update` 0.2.0 → 0.2.1。
+- 剩最後一格給 Jasper：對話裡 `/rimoo` 回 yes → 新對話 `/my-workstyle` 有載入。
