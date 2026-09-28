@@ -3,6 +3,7 @@ import { DEFAULT_CHUNK_SIZE, isDate } from './chunks.ts';
 import { DEFAULT_SIMILARITY } from './repeated.ts';
 import { MAX_CONCURRENCY } from './runner.ts';
 import { parseCardSize, type CardSize } from './card.ts';
+import { SKILL_NAME } from './install.ts';
 
 export const HELP = `rimoo — Remember how you work.
 
@@ -27,6 +28,10 @@ Options:
   --allow-paths      keep file paths and project names in CLAUDE.md, SKILL.md, workstyle.json and the share files
   --lang en          share.txt and the share card in English (translates the top titles once with Claude Code)
   --card-size <WxH>  share card size, e.g. 1200x627 (default: 1080x1080)
+  --install-skill    add SKILL.md to Claude Code as /my-workstyle without asking
+  --skill-name <name>
+                     install the skill under this name instead (a-z, 0-9 and -)
+  --force-skill      replace an installed skill of the same name that has different rules
   -h, --help         show this help
 `;
 
@@ -51,8 +56,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
     'model',
     'lang',
     'card-size',
+    'skill-name',
   ]);
-  const flags = new Set(['prepare-only', 'yes', 'force', 'allow-paths', 'with-transcripts']);
+  const flags = new Set(['prepare-only', 'yes', 'force', 'allow-paths', 'with-transcripts', 'install-skill', 'force-skill']);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === '-h' || arg === '--help') {
@@ -139,6 +145,11 @@ export async function main(argv: string[], io: Io): Promise<number> {
       errors.push(`Option --card-size must be width x height in pixels, e.g. 1200x627, got: ${options['card-size']}`);
     }
   }
+  if (typeof options['skill-name'] === 'string' && !SKILL_NAME.test(options['skill-name'])) {
+    errors.push(
+      `Option --skill-name takes lowercase letters, digits and -, starting with a letter or digit, got: ${options['skill-name']}`,
+    );
+  }
   if (errors.length > 0) {
     io.stderr(errors.join('\n') + '\n\n' + HELP);
     return 2;
@@ -161,6 +172,9 @@ export async function main(argv: string[], io: Io): Promise<number> {
     withTranscripts: options['with-transcripts'] === true,
     lang: options.lang === 'en' ? 'en' : undefined,
     cardSize,
+    installSkill: options['install-skill'] === true,
+    skillName: str(options['skill-name']),
+    forceSkill: options['force-skill'] === true,
     stdin: io.stdin,
     env: io.env,
     cwd: io.cwd,

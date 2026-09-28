@@ -45,3 +45,11 @@ test('the skill writes to ~/.rimoo, asks before --yes, and leaves ~/.claude/CLAU
   assert.ok(body.includes('Do not write to `~/.claude/CLAUDE.md`'), 'says not to write to ~/.claude/CLAUDE.md');
   assert.doesNotMatch(body, /--out (?!~\/\.rimoo)/, 'no other output directory');
 });
+
+test('the skill names the share card, offers --lang en and --install-skill, and runs each command once', async () => {
+  const { body } = await readSkill();
+  for (const s of ['share.png', 'share.html', '--lang en', '--install-skill', '--skill-name', 'Run each rimoo command once']) {
+    assert.ok(body.includes(s), `mentions ${s}`);
+  }
+  assert.ok(body.includes('Install this as /my-workstyle'), 'asks before installing');
+});

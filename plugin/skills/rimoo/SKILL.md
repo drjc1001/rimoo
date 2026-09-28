@@ -15,6 +15,7 @@ Run the Rimoo CLI on the user's Claude Code history. Follow the steps in order. 
 - Always use `--out ~/.rimoo`. Never use another output directory.
 - Never paste the user's prompts back, except what the CLI already printed.
 - Do not write to `~/.claude/CLAUDE.md` or any other file unless the user asks.
+- Run each rimoo command once. If it stops early, show the last lines of the log and stop; do not run it again.
 
 ## Steps
 
@@ -54,6 +55,14 @@ Run the Rimoo CLI on the user's Claude Code history. Follow the steps in order. 
      - `~/.rimoo/SKILL.md`
      - `~/.rimoo/workstyle.json`
      - `~/.rimoo/share.txt`
+     - `~/.rimoo/share.png` (`~/.rimoo/share.html` when Chrome is not installed)
    - Say that `report.md` keeps their own quotes and stays local, and that `CLAUDE.md` is ready to add to their own `~/.claude/CLAUDE.md`.
    - Do not write to `~/.claude/CLAUDE.md` or any other file unless the user asks.
+   - If the user wants English titles on the card, run the same command again with `--lang en`; that makes one small call to translate five titles.
    - After a trial run, say that running `/rimoo` again continues with the remaining chunks; finished chunks are kept.
+
+6. Offer to install the skill.
+   - Ask: "Install this as /my-workstyle so Claude loads it in future sessions? (yes / no)".
+   - On yes run `npx -y rimoo@latest analyze --out ~/.rimoo --install-skill` (all chunks are done, so this only re-exports and installs; nothing is sent to Claude). After a trial run, add `--sample 2` so it uses the same two chunks.
+   - If the CLI says the skill already exists with different rules, tell the user and offer `--skill-name <another-name>`.
+   - On no, say the file is at `~/.rimoo/SKILL.md`.

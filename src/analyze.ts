@@ -1,4 +1,4 @@
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { locateHistory, parseHistory } from './history.ts';
 import { computeStats } from './stats.ts';
@@ -27,6 +27,7 @@ import { projectNames, type Hit } from './privacy.ts';
 import { attachTranscripts, loadTranscripts, transcriptsDir } from './transcripts.ts';
 import { DEFAULT_CARD_SIZE, findChrome, screenshotCard, type CardSize } from './card.ts';
 import { needsTranslation, translateTitles } from './translate-template.ts';
+import { installSkill, skillNameFrom, skillsDir, tilde, TEXT as INSTALL } from './install.ts';
 
 export interface AnalyzeOptions {
   historyPath?: string | undefined;
@@ -59,6 +60,12 @@ export interface AnalyzeOptions {
   lang?: 'en' | undefined;
   /** share.html and share.png size (default 1080×1080). */
   cardSize?: CardSize | undefined;
+  /** After the exports, install SKILL.md into Claude Code's skills without asking. */
+  installSkill?: boolean | undefined;
+  /** Skill name to install under (default: the name in SKILL.md, my-workstyle). */
+  skillName?: string | undefined;
+  /** Replace an installed skill of the same name that has different rules. */
+  forceSkill?: boolean | undefined;
   /**
    * Where the y/N answer is read from. Without it (a caller that wired no input) analyze stops after
    * preparing, as with prepareOnly.
@@ -150,8 +157,10 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
       formatLargeHistory(manifest),
   );
   const saved = [display(outFile), display(repeatedFile), display(manifestFile)];
+  let exported = false;
   const code = await analyzeChunks();
   opts.stdout(formatSaved(saved));
+  if (exported) await installStep();
   if (parsed.badLines.length > 0) {
     const shown = parsed.badLines.slice(0, 5).join(', ');
     const more = parsed.badLines.length > 5 ? `, … (${n(parsed.badLines.length)} total)` : '';
@@ -286,7 +295,36 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
     if (removed.length > 0) opts.stdout(formatGate(removed) + '\n');
     saved.push(...files.map(display));
     await sharePng(path.join(outDir, 'share.html'));
+    exported = true;
     return 0;
+  }
+
+  /**
+   * Offer SKILL.md as a Claude Code skill: --install-skill installs, a terminal is asked, anything else gets a hint.
+   * Never changes the exit code; CLAUDE.md is only pointed at, never copied.
+   */
+  async function installStep(): Promise<void> {
+    const tty = opts.stdin?.isTTY === true;
+    try {
+      const skillMd = await readFile(path.join(outDir, 'SKILL.md'), 'utf8');
+      const name = opts.skillName ?? skillNameFrom(skillMd);
+      let go = opts.installSkill === true;
+      if (!go && !tty) opts.stdout(INSTALL.hint(name));
+      else if (!go) go = await confirm(opts.stdin!, opts.stdout, INSTALL.question(name, tilde(skillsDir(env), env)));
+      if (go) {
+        let result = await installSkill({ skillMd, name, env, force: opts.forceSkill === true });
+        const shown = tilde(result.path, env);
+        if (result.kind === 'exists' && tty && (await confirm(opts.stdin!, opts.stdout, INSTALL.replace(shown)))) {
+          result = await installSkill({ skillMd, name, env, force: true });
+        }
+        opts.stdout(
+          result.kind === 'installed' ? INSTALL.installed(shown, name) : result.kind === 'same' ? INSTALL.same(shown, name) : INSTALL.exists(shown),
+        );
+      }
+    } catch (err) {
+      opts.stdout(INSTALL.failed(err instanceof Error ? err.message : String(err)));
+    }
+    opts.stdout(INSTALL.claudeMd(tilde(display(path.join(outDir, 'CLAUDE.md')), env)) + '\n');
   }
 
   /** share.png from share.html with the Chrome found, or a line on how to make it by hand. */
@@ -311,6 +349,11 @@ async function confirm(
   question: string,
 ): Promise<boolean> {
   write(question);
+  // An input that has already ended (a pipe used up by an earlier question) would never answer.
+  if ((input as { readableEnded?: boolean }).readableEnded === true) {
+    write('\n');
+    return false;
+  }
   const rl = createInterface({ input, terminal: false });
   try {
     const answer = await new Promise<string | null>((resolve) => {

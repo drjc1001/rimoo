@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runAnalyze } from './analyze.ts';
@@ -127,7 +127,9 @@ async function withFake(fn: (ctx: { dir: string; history: string; env: NodeJS.Pr
   const fake = await makeFakeClaude();
   try {
     const history = await historyFixture(dir);
-    await fn({ dir, history, env: { PATH: fake.dir, FAKE_CLAUDE_LOG: fake.log }, log: fake.log });
+    // CLAUDE_CONFIG_DIR keeps the install step away from the real ~/.claude/skills.
+    const env = { PATH: fake.dir, FAKE_CLAUDE_LOG: fake.log, CLAUDE_CONFIG_DIR: path.join(dir, 'claude-config') };
+    await fn({ dir, history, env, log: fake.log });
   } finally {
     await rm(dir, { recursive: true, force: true });
     await rm(fake.dir, { recursive: true, force: true });
@@ -152,7 +154,7 @@ test('runAnalyze --yes: runs every chunk, prints progress and totals, saves find
     assert.doesNotMatch(out, /--sample/);
     assert.match(
       out,
-      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\n$/,
+      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\nPass --install-skill to add these rules as \/my-workstyle in Claude Code\.\nCLAUDE\.md: copy rimoo-out\/CLAUDE\.md into a project root to have Claude load the rules there\.\n\n$/,
     );
     assert.deepEqual((await readCalls(log)).map((x) => x.part), [1, 2, 3]);
     const files = (await readdir(path.join(dir, 'rimoo-out', 'findings'))).sort();
@@ -293,7 +295,7 @@ test('runAnalyze: chunks done → merge → four exports, the §8 summary and Sa
     assert.match(out, /\n6\. 不要客套話。（出現於 1 段、2 則）\n\nOpen share\.html in a browser and take a screenshot to get the image\.\n\nSaved /);
     assert.match(
       out,
-      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\n$/,
+      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\nPass --install-skill to add these rules as \/my-workstyle in Claude Code\.\nCLAUDE\.md: copy rimoo-out\/CLAUDE\.md into a project root to have Claude load the rules there\.\n\n$/,
     );
     const o = path.join(dir, 'rimoo-out');
     const [report, claudeMd, skill, workstyle] = await Promise.all(
@@ -455,5 +457,99 @@ test('runAnalyze: with a Chrome on PATH share.png is made at the card size and s
     } finally {
       await rm(chrome.dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ------------------------------------------------------------------------ T-021: install SKILL.md as a skill (fake)
+
+test('runAnalyze: no terminal and no --install-skill only prints the hint; nothing is installed', { skip: posixOnly }, async () => {
+  await withFindings(async ({ dir, history, env }) => {
+    const c = capture();
+    const code = await runAnalyze({ historyPath: history, chunkSize: 2, yes: true, env, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr });
+    assert.equal(code, 0, c.err.join(''));
+    assert.match(c.out.join(''), /\nPass --install-skill to add these rules as \/my-workstyle in Claude Code\.\n/);
+    assert.doesNotMatch(c.out.join(''), /\[y\/N\] $/m);
+    await assert.rejects(readdir(path.join(env.CLAUDE_CONFIG_DIR!, 'skills')));
+  });
+});
+
+test('runAnalyze --install-skill: installs without a terminal, exit 0; the next run says it is already there', { skip: posixOnly }, async () => {
+  await withFindings(async ({ dir, history, env }) => {
+    const base = { historyPath: history, chunkSize: 2, yes: true, installSkill: true, env, cwd: dir };
+    const c = capture();
+    assert.equal(await runAnalyze({ ...base, stdin: pipe(), stdout: c.stdout, stderr: c.stderr }), 0, c.err.join(''));
+    const file = path.join(env.CLAUDE_CONFIG_DIR!, 'skills', 'my-workstyle', 'SKILL.md');
+    assert.equal(await readFile(file, 'utf8'), await readFile(path.join(dir, 'rimoo-out', 'SKILL.md'), 'utf8'));
+    const out = c.out.join('');
+    assert.ok(out.includes(`Installed ${file} — type /my-workstyle in a new Claude Code session.\n`), out);
+    assert.match(out, /CLAUDE\.md: copy rimoo-out\/CLAUDE\.md into a project root/);
+
+    const again = capture();
+    assert.equal(await runAnalyze({ ...base, stdin: pipe(), stdout: again.stdout, stderr: again.stderr }), 0);
+    assert.ok(again.out.join('').includes(`/my-workstyle is already installed with these rules (${file}).\n`));
+  });
+});
+
+test('runAnalyze: on a terminal asks before installing; y installs', { skip: posixOnly }, async () => {
+  await withFindings(async ({ dir, history, env }) => {
+    const c = capture();
+    assert.equal(await runAnalyze({ historyPath: history, chunkSize: 2, yes: true, env, cwd: dir, stdin: tty('y\n'), stdout: c.stdout, stderr: c.stderr }), 0);
+    const skills = path.join(env.CLAUDE_CONFIG_DIR!, 'skills');
+    assert.ok(c.out.join('').includes(`Install as /my-workstyle in ${skills}? [y/N] Installed `));
+    await readFile(path.join(skills, 'my-workstyle', 'SKILL.md'), 'utf8');
+  });
+});
+
+test('runAnalyze --skill-name foo installs under foo/', { skip: posixOnly }, async () => {
+  await withFindings(async ({ dir, history, env }) => {
+    const c = capture();
+    const code = await runAnalyze({
+      historyPath: history, chunkSize: 2, yes: true, installSkill: true, skillName: 'foo', env, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr,
+    });
+    assert.equal(code, 0, c.err.join(''));
+    assert.deepEqual(await readdir(path.join(env.CLAUDE_CONFIG_DIR!, 'skills')), ['foo']);
+    assert.match(c.out.join(''), /type \/foo in a new Claude Code session/);
+  });
+});
+
+test('runAnalyze --install-skill: a different skill of the same name is kept unless --force-skill', { skip: posixOnly }, async () => {
+  await withFindings(async ({ dir, history, env }) => {
+    const file = path.join(env.CLAUDE_CONFIG_DIR!, 'skills', 'my-workstyle', 'SKILL.md');
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, 'my own rules\n');
+    const base = { historyPath: history, chunkSize: 2, yes: true, installSkill: true, env, cwd: dir };
+
+    const c = capture();
+    assert.equal(await runAnalyze({ ...base, stdin: pipe(), stdout: c.stdout, stderr: c.stderr }), 0, c.err.join(''));
+    assert.equal(await readFile(file, 'utf8'), 'my own rules\n');
+    assert.ok(
+      c.out.join('').includes(
+        `${file} already exists with different rules. Pass --skill-name <other> to install under another name, or --force-skill to replace it.\n`,
+      ),
+    );
+
+    // On a terminal the replace question comes first; no answer is no.
+    const t = capture();
+    assert.equal(await runAnalyze({ ...base, stdin: tty(''), stdout: t.stdout, stderr: t.stderr }), 0);
+    assert.ok(t.out.join('').includes(`${file} already exists with different rules; replace it? [y/N] `));
+    assert.equal(await readFile(file, 'utf8'), 'my own rules\n');
+
+    const f = capture();
+    assert.equal(await runAnalyze({ ...base, forceSkill: true, stdin: pipe(), stdout: f.stdout, stderr: f.stderr }), 0);
+    assert.equal(await readFile(file, 'utf8'), await readFile(path.join(dir, 'rimoo-out', 'SKILL.md'), 'utf8'));
+    assert.match(f.out.join(''), /Installed /);
+  });
+});
+
+test('runAnalyze --install-skill: a failed install prints one line and still exits 0', { skip: posixOnly }, async () => {
+  await withFindings(async ({ dir, history, env }) => {
+    // The config dir is a file, so the skills folder cannot be made.
+    await writeFile(env.CLAUDE_CONFIG_DIR!, 'not a folder');
+    const c = capture();
+    const code = await runAnalyze({
+      historyPath: history, chunkSize: 2, yes: true, installSkill: true, env, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr,
+    });
+    assert.equal(code, 0);
+    assert.match(c.out.join(''), /\nCould not install the skill: .+\nCLAUDE\.md: copy /);
   });
 });
