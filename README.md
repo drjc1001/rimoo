@@ -72,6 +72,10 @@ Top patterns:
 Found with Rimoo — npx rimoo analyze
 ```
 
+### Use it
+
+When the run ends, Rimoo asks whether to install `SKILL.md` as `/my-workstyle` in Claude Code; `--install-skill` installs it without asking. `CLAUDE.md` is never installed for you: copy it into a project's root folder to have Claude follow the rules there.
+
 ## Privacy
 
 - Everything runs on your machine. The only network calls are the ones your own Claude Code makes.
@@ -110,6 +114,10 @@ Options:
   --allow-paths      keep file paths and project names in CLAUDE.md, SKILL.md, workstyle.json and the share files
   --lang en          share.txt and the share card in English (translates the top titles once with Claude Code)
   --card-size <WxH>  share card size, e.g. 1200x627 (default: 1080x1080)
+  --install-skill    add SKILL.md to Claude Code as /my-workstyle without asking
+  --skill-name <name>
+                     install the skill under this name instead (a-z, 0-9 and -)
+  --force-skill      replace an installed skill of the same name that has different rules
   -h, --help         show this help
 ```
 

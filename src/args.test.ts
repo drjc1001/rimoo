@@ -210,3 +210,25 @@ test('main: --lang only takes en, --card-size must be WIDTHxHEIGHT; both listed 
   assert.ok(HELP.includes('--lang en'));
   assert.ok(HELP.includes('--card-size <WxH>'));
 });
+
+test('parseArgs/main: --install-skill and --force-skill are flags, --skill-name takes a skill name; all in the help', async () => {
+  assert.deepEqual(parseArgs(['analyze', '--install-skill', '--force-skill', '--skill-name', 'foo-2']).options, {
+    'install-skill': true,
+    'force-skill': true,
+    'skill-name': 'foo-2',
+  });
+  assert.deepEqual(parseArgs(['analyze', '--install-skill=yes']).errors, ['Option --install-skill takes no value']);
+  assert.deepEqual(parseArgs(['analyze', '--skill-name']).errors, ['Option --skill-name needs a value']);
+  for (const bad of ['Foo', '-foo', 'my skill', '../x', 'a/b', 'é']) {
+    const err: string[] = [];
+    const code = await main(['analyze', '--skill-name', bad, '--history', '/nonexistent'], { stdout: () => {}, stderr: (t) => err.push(t) });
+    assert.equal(code, 2, bad);
+    assert.ok(err.join('').includes(`Option --skill-name takes lowercase letters, digits and -, starting with a letter or digit, got: ${bad}`), bad);
+  }
+  const err: string[] = [];
+  assert.equal(
+    await main(['analyze', '--install-skill', '--skill-name', 'foo', '--force-skill', '--history', '/nonexistent'], { stdout: () => {}, stderr: (t) => err.push(t) }),
+    1,
+  );
+  for (const flag of ['--install-skill', '--skill-name <name>', '--force-skill']) assert.ok(HELP.includes(flag), flag);
+});
