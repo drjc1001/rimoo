@@ -1,6 +1,6 @@
 {
   "name": "rimoo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Discover the engineering habits hidden inside your AI coding history. Runs locally on your Claude Code history.",
   "license": "MIT",
   "repository": {
