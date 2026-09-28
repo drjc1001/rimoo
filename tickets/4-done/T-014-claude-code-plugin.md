@@ -58,3 +58,7 @@ created: 2026-09-28
 - 第 2 步實跑（在 Claude Code 對話的 Bash 裡、沒有 TTY、不帶 `--yes`）：`npx -y rimoo@latest analyze --out ~/.rimoo` 從 npm 抓 0.1.0，印統計（24,126 則／61 專案）、24 段、預估 2,172,274 tokens，然後「Not running: there is no terminal to ask for a yes」exit 2；`~/.rimoo/` 只有 stats／repeated／manifest／prompts／chunks，findings 0 個＝沒送任何東西給 Claude。
 - 沒驗到（要 Jasper 在對話裡打 `/rimoo` 才看得到）：斜線選單有沒有列出 `/rimoo`；`allowed-tools` 的樣式對 `… > ~/.rimoo/run.log 2>&1` 這種帶重導向的指令放不放行（不放行就是多按一次同意，不影響結果）；試跑 2 段（花他額度，等他點頭）。
 - marketplace 目前指向本機目錄 `/data/repos/1011_Project_Rimoo`；merge 後換成 `drjc1001/rimoo`（GitHub）重裝一次，走使用者真正會走的路。
+
+## Jasper 自測 2026-09-28（0.2.0，從 GitHub 裝）
+- 新終端機 `cd /data/repos/rimoo_test && claude` → `/rimoo` → 選 1 試跑 2 段：看得到前十條（他回報）。`~/.rimoo/` 有 report／CLAUDE／SKILL／workstyle／share.txt／share.html／share.png；2 段 103,980 tokens、$0.93 定價、26 條 findings → 21 條規則。
+- 缺口：跑完的訊息沒提到 `share.png`、沒問語言 → T-020。
