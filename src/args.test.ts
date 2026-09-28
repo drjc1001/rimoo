@@ -190,3 +190,23 @@ test('parseArgs: --with-transcripts is a flag, off unless given, listed in the h
   assert.deepEqual(parseArgs(['analyze', '--with-transcripts=1']).errors, ['Option --with-transcripts takes no value']);
   assert.ok(HELP.includes('--with-transcripts'));
 });
+
+test('main: --lang only takes en, --card-size must be WIDTHxHEIGHT; both listed in the help', async () => {
+  for (const [flag, bad, msg] of [
+    ['--lang', 'fr', 'Option --lang only takes en, got: fr'],
+    ['--card-size', '1200', 'Option --card-size must be width x height in pixels, e.g. 1200x627, got: 1200'],
+    ['--card-size', 'big', 'Option --card-size must be width x height in pixels, e.g. 1200x627, got: big'],
+  ] as const) {
+    const err: string[] = [];
+    const code = await main(['analyze', flag, bad, '--history', '/nonexistent'], { stdout: () => {}, stderr: (t) => err.push(t) });
+    assert.equal(code, 2, `${flag} ${bad}`);
+    assert.ok(err.join('').includes(msg), err.join(''));
+  }
+  for (const ok of [['--lang', 'en'], ['--card-size', '1200x627']]) {
+    const err: string[] = [];
+    // Valid: gets past the checks to the missing history (exit 1).
+    assert.equal(await main(['analyze', ...ok, '--history', '/nonexistent'], { stdout: () => {}, stderr: (t) => err.push(t) }), 1, ok.join(' '));
+  }
+  assert.ok(HELP.includes('--lang en'));
+  assert.ok(HELP.includes('--card-size <WxH>'));
+});

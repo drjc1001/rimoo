@@ -273,6 +273,8 @@ export interface CallClaudeOptions {
   env?: NodeJS.ProcessEnv;
   /** Heads every error message, e.g. "chunk 3" (default "claude"). */
   label?: string | undefined;
+  /** Replaces SYSTEM_PROMPT, for a call that is not about finding habits. */
+  systemPrompt?: string | undefined;
 }
 
 export interface ClaudeReply {
@@ -304,7 +306,7 @@ export async function callClaude(opts: CallClaudeOptions): Promise<ClaudeReply> 
     '--output-format',
     'json',
     '--system-prompt',
-    SYSTEM_PROMPT,
+    opts.systemPrompt ?? SYSTEM_PROMPT,
     '--tools',
     '',
     '--strict-mcp-config',

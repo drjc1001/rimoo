@@ -21,6 +21,9 @@ import path from 'node:path';
  * The modes above apply to it too (fenced, garbage, error, crash). FAKE_CLAUDE_MERGE_FAIL_ON=<category> switches
  * to error for that category only. Merge calls are logged to FAKE_CLAUDE_MERGE_LOG=<file>, not FAKE_CLAUDE_LOG:
  * { category, args, stdinChars, prompt }.
+ *
+ * A translation prompt (one holding a <titles> block) is answered {"titles": ["English title 1.", …]}, one per title
+ * sent, and logged to FAKE_CLAUDE_TRANSLATE_LOG=<file>: { args, titles }.
  */
 const SCRIPT = `
 const fs = require('node:fs');
@@ -30,6 +33,16 @@ process.stdin.on('data', (d) => (input += d));
 process.stdin.on('end', () => {
   const part = Number((/This is part (\\d+):/.exec(input) || [])[1] || 0);
   const merge = /\\n<findings>\\n/.test(input);
+  if (/\\n<titles>\\n/.test(input)) {
+    const titles = JSON.parse(input.slice(input.indexOf('<titles>') + 8, input.indexOf('</titles>')));
+    if (process.env.FAKE_CLAUDE_TRANSLATE_LOG) {
+      fs.appendFileSync(process.env.FAKE_CLAUDE_TRANSLATE_LOG, JSON.stringify({ args: process.argv.slice(2), titles }) + '\\n');
+    }
+    process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false,
+      result: JSON.stringify({ titles: titles.map((t, i) => 'English title ' + (i + 1) + '.') }),
+      usage: { input_tokens: 10, output_tokens: 5 }, total_cost_usd: 0.001, duration_ms: 900 }));
+    return;
+  }
   const category = merge ? (/in the category "([a-z_]+)"/.exec(input) || [])[1] || null : null;
   if (merge && process.env.FAKE_CLAUDE_MERGE_LOG) {
     fs.appendFileSync(process.env.FAKE_CLAUDE_MERGE_LOG, JSON.stringify({
@@ -135,6 +148,53 @@ export async function readMergeCalls(log: string): Promise<FakeMergeCall[]> {
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l) as FakeMergeCall);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A temp dir holding an executable `google-chrome` that appends its argv as one JSON line to FAKE_CHROME_LOG and
+ * writes a few bytes to the --screenshot= path, like headless Chrome does. FAKE_CHROME_FAIL=1 exits 1 instead.
+ */
+export async function makeFakeChrome(): Promise<{ dir: string; chrome: string; log: string }> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'rimoo-fake-chrome-'));
+  const chrome = path.join(dir, 'google-chrome');
+  const script = `
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (process.env.FAKE_CHROME_LOG) fs.appendFileSync(process.env.FAKE_CHROME_LOG, JSON.stringify(args) + '\\n');
+if (process.env.FAKE_CHROME_FAIL) { process.stderr.write('fake chrome failed\\n'); process.exit(1); }
+const shot = args.find((a) => a.startsWith('--screenshot='));
+if (shot) fs.writeFileSync(shot.slice('--screenshot='.length), 'PNG');
+`;
+  await writeFile(chrome, `#!${process.execPath}\n${script}`, 'utf8');
+  await chmod(chrome, 0o755);
+  return { dir, chrome, log: path.join(dir, 'chrome.jsonl') };
+}
+
+export async function readChromeCalls(log: string): Promise<string[][]> {
+  try {
+    return (await readFile(log, 'utf8'))
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as string[]);
+  } catch {
+    return [];
+  }
+}
+
+export interface FakeTranslateCall {
+  args: string[];
+  titles: string[];
+}
+
+export async function readTranslateCalls(log: string): Promise<FakeTranslateCall[]> {
+  try {
+    return (await readFile(log, 'utf8'))
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as FakeTranslateCall);
   } catch {
     return [];
   }
