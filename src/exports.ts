@@ -4,6 +4,7 @@ import type { Merged, MergedRule } from './merge.ts';
 import { CATEGORIES, type Category, type Evidence } from './runner.ts';
 import { localDate, type Stats } from './stats.ts';
 import { formatRemoved, redact, type Hit, type HitKind } from './privacy.ts';
+import { monthsBetween, renderCard, type CardSize } from './card.ts';
 
 /** How many rules the summary lists. */
 export const TOP_RULES = 10;
@@ -25,6 +26,9 @@ export const CATEGORY_TITLE: Record<Category, string> = {
 export type Lang = 'zh' | 'en';
 
 const CJK = /[㐀-䶿一-鿿豈-﫿]/u;
+
+/** Whether the text has Chinese characters. */
+export const hasCjk = (s: string): boolean => CJK.test(s);
 
 /** The language the rules are written in: Chinese when at least half of them have Chinese characters. */
 export function rulesLang(rules: MergedRule[]): Lang {
@@ -82,9 +86,15 @@ export function isPortable(r: MergedRule): boolean {
 
 export interface ExportInput {
   merged: Merged;
-  stats: Pick<Stats, 'prompts' | 'projects'>;
+  stats: Pick<Stats, 'prompts' | 'projects'> & { dateRange?: Stats['dateRange'] | undefined };
   /** Stamped in CLAUDE.md and workstyle.json (default now). */
   now?: Date;
+  /** The most repeated instruction (repeated.json's first), for the share card; none leaves it off the card. */
+  repeatedTop?: { label: string; count: number } | null | undefined;
+  /** Language of share.txt and the share card (default: the rules' own); 'en' uses each rule's titleEn. */
+  lang?: Lang | undefined;
+  /** share.html's size (default 1080×1080). */
+  cardSize?: CardSize | undefined;
 }
 
 /** The §8 summary: prompts and projects, chunks analyzed, the top rules. Also the head of report.md. */
@@ -232,16 +242,48 @@ export function renderWorkstyle(input: ExportInput): Workstyle {
  */
 export function renderShare(input: ExportInput): string {
   const { merged, stats } = input;
-  const t = TEXT[rulesLang(merged.rules)].share;
-  const top = merged.rules.filter(isPortable).slice(0, SHARE_RULES);
-  const line = (r: MergedRule): string => oneLine(r.title ?? r.rule).replace(/[。.]+$/, '');
+  const lang = input.lang ?? rulesLang(merged.rules);
+  const t = TEXT[lang].share;
+  const top = shareRules(merged.rules);
+  const line = (r: MergedRule): string => shareTitle(r, lang).replace(/[。.]+$/, '');
   const out = [t.title, '', t.prompts(stats.prompts), t.projects(stats.projects), ''];
   if (top.length > 0) out.push(t.top, ...top.map((r) => `• ${line(r)}`), '');
   out.push(t.footer, '');
   return out.join('\n');
 }
 
-export const EXPORT_FILES = ['report.md', 'CLAUDE.md', 'SKILL.md', 'workstyle.json', 'share.txt'] as const;
+/** The rules share.txt and the share card show: the top portable ones. */
+export function shareRules(rules: MergedRule[]): MergedRule[] {
+  return rules.filter(isPortable).slice(0, SHARE_RULES);
+}
+
+/** A rule as share.txt and the card show it: its title (the English one for 'en' when there is one), else the rule. */
+export function shareTitle(r: MergedRule, lang: Lang): string {
+  return oneLine((lang === 'en' ? r.titleEn : undefined) ?? r.title ?? r.rule);
+}
+
+/**
+ * share.html: the card. Each piece of text goes through the privacy gate inside renderCard, before it is escaped,
+ * so the page as a whole is not scanned again (its CSS and markup would look like paths).
+ */
+export function renderShareCard(input: ExportInput, opts: Pick<ExportOptions, 'allowPaths' | 'names'> = {}): string {
+  const { merged, stats } = input;
+  const lang = input.lang ?? rulesLang(merged.rules);
+  const top = input.repeatedTop ?? null;
+  return renderCard({
+    prompts: stats.prompts,
+    projects: stats.projects,
+    months: monthsBetween(stats.dateRange),
+    rules: shareRules(merged.rules).map((r) => ({ text: shareTitle(r, lang), frequency: r.frequency })),
+    quote: top === null ? null : { text: top.label, count: top.count },
+    lang,
+    size: input.cardSize,
+    allowPaths: opts.allowPaths,
+    names: opts.names,
+  });
+}
+
+export const EXPORT_FILES = ['report.md', 'CLAUDE.md', 'SKILL.md', 'workstyle.json', 'share.txt', 'share.html'] as const;
 export type ExportFile = (typeof EXPORT_FILES)[number];
 
 export interface ExportOptions {
@@ -254,12 +296,14 @@ export interface ExportOptions {
 }
 
 /** What the gate removes from each file: report.md keeps the user's own quotes, so only keys and tokens go. */
-const GATE: Record<ExportFile, readonly HitKind[] | 'all'> = {
+const GATE: Record<ExportFile, readonly HitKind[] | 'all' | 'none'> = {
   'report.md': ['secret'],
   'CLAUDE.md': 'all',
   'SKILL.md': 'all',
   'workstyle.json': 'all',
   'share.txt': 'all',
+  // Gated string by string in renderShareCard, before the escape.
+  'share.html': 'none',
 };
 
 /** In workstyle.json only the rule text is scanned, not keys, dates or counts. */
@@ -273,6 +317,7 @@ export function gate(
   names: readonly string[] = [],
 ): { text: string; hits: Hit[] } {
   const g = GATE[file];
+  if (g === 'none') return { text, hits: [] };
   const opts = { allowPaths, kinds: g === 'all' ? undefined : g, names };
   if (file !== 'workstyle.json') return redact(text, opts);
   const hits: Hit[] = [];
@@ -291,7 +336,7 @@ export function formatGate(removed: { file: ExportFile; hits: Hit[] }[]): string
 }
 
 /**
- * Write the five exports into outDir, each through the privacy gate (what it finds becomes `[removed]`, and the
+ * Write the exports into outDir, each through the privacy gate (what it finds becomes `[removed]`, and the
  * file is written anyway); returns their paths in EXPORT_FILES order.
  */
 export async function writeExports(outDir: string, input: ExportInput, opts: ExportOptions = {}): Promise<string[]> {
@@ -302,6 +347,7 @@ export async function writeExports(outDir: string, input: ExportInput, opts: Exp
     'SKILL.md': renderSkillMd(input),
     'workstyle.json': JSON.stringify(renderWorkstyle(input), null, 2) + '\n',
     'share.txt': renderShare(input),
+    'share.html': renderShareCard(input, { allowPaths: opts.allowPaths, names: opts.names }),
   };
   const files: string[] = [];
   for (const f of EXPORT_FILES) {

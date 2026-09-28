@@ -44,6 +44,8 @@ export interface MergedRule {
   category: Category;
   /** Short phrase for SKILL.md; null when the model gave none. */
   title: string | null;
+  /** The title in English, for the share card with --lang en; written into merged.json once translated. */
+  titleEn?: string | undefined;
   rule: string;
   confidence: Confidence;
   /** Sum of the members' frequency. */

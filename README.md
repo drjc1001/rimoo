@@ -45,13 +45,14 @@ A real example: a year of history, about 24,000 prompts, came to 24 calls, plus 
 
 ## What you get
 
-Five files in `./rimoo-out`:
+These files in `./rimoo-out`:
 
 - `report.md`: the full analysis, with your own prompts quoted as evidence.
 - `CLAUDE.md`: your rules as instructions, ready to drop into a project.
 - `SKILL.md`: the same working style as a portable skill.
 - `workstyle.json`: the rules in a machine-readable form.
 - `share.txt`: a short summary to paste into a README or a LinkedIn post.
+- `share.html` and, when Chrome is installed, `share.png`: a 1080×1080 card for LinkedIn or X. Pass `--lang en` for English titles.
 
 `share.txt` looks like this:
 
@@ -75,7 +76,7 @@ Found with Rimoo — npx rimoo analyze
 
 - Everything runs on your machine. The only network calls are the ones your own Claude Code makes.
 - Pasted contents in your history are never read.
-- `CLAUDE.md`, `SKILL.md`, `share.txt` and `workstyle.json` go through a gate that removes file paths, project names, emails, URLs, phone numbers and keys. `--allow-paths` keeps paths and project names.
+- `CLAUDE.md`, `SKILL.md`, `share.txt`, `share.html` and `workstyle.json` go through a gate that removes file paths, project names, emails, URLs, phone numbers and keys. `--allow-paths` keeps paths and project names.
 - `report.md` keeps your own quotes and stays local. Don't share it as is.
 
 ## How it works
@@ -106,7 +107,9 @@ Options:
   --model <name>     model for Claude Code to use, passed to claude --model as is
   --with-transcripts give short prompts Claude's previous message, read from the session
                      transcripts next to the history (more to analyze, so it costs more)
-  --allow-paths      keep file paths and project names in CLAUDE.md, SKILL.md, workstyle.json and share.txt
+  --allow-paths      keep file paths and project names in CLAUDE.md, SKILL.md, workstyle.json and the share files
+  --lang en          share.txt and the share card in English (translates the top titles once with Claude Code)
+  --card-size <WxH>  share card size, e.g. 1200x627 (default: 1080x1080)
   -h, --help         show this help
 ```
 
