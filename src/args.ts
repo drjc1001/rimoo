@@ -25,10 +25,10 @@ Options:
   --model <name>     model for Claude Code to use, passed to claude --model as is
   --with-transcripts give short prompts Claude's previous message, read from the session
                      transcripts next to the history (more to analyze, so it costs more)
-  --allow-paths      keep file paths and project names in CLAUDE.md, SKILL.md, workstyle.json and the share files
+  --allow-paths      keep file paths and project names in CLAUDE.md, SKILL.md, rules.md, workstyle.json and the share files
   --lang en          share.txt and the share card in English (translates the top titles once with Claude Code)
   --card-size <WxH>  share card size, e.g. 1200x627 (default: 1080x1080)
-  --install-skill    add SKILL.md to Claude Code as /my-workstyle without asking
+  --install-skill    add SKILL.md and rules.md to Claude Code as /my-workstyle without asking
   --skill-name <name>
                      install the skill under this name instead (a-z, 0-9 and -)
   --force-skill      replace an installed skill of the same name that has different rules

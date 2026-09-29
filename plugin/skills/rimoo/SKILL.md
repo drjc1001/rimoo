@@ -43,26 +43,29 @@ Run the Rimoo CLI on the user's Claude Code history. Follow the steps in order. 
    - On 1: run `npx -y rimoo@latest analyze --out ~/.rimoo --yes --sample 2 > ~/.rimoo/run.log 2>&1` in the background.
    - On 2: run `npx -y rimoo@latest analyze --out ~/.rimoo --yes > ~/.rimoo/run.log 2>&1` in the background.
    - On 3: say nothing was sent to Claude and stop.
+   - The trial always takes the first two chunks; running it again reuses them and costs nothing.
    - Start it in the background from the beginning. The Bash tool times out after 2 minutes by default, and a full run can take tens of minutes.
    - While it runs, read `~/.rimoo/run.log` now and then. The CLI prints one line per chunk (`chunk 1/24 · … tokens · …`); report each finished chunk in one line.
    - If the log shows an error or a failed chunk, show the user the last lines of the log and stop.
 
-5. Show the result.
+5. Show the result and ask to install, in one message.
    - Read `~/.rimoo/report.md` and show the user the top patterns (the numbered list near the top).
    - Say where the files are:
      - `~/.rimoo/report.md`
      - `~/.rimoo/CLAUDE.md`
      - `~/.rimoo/SKILL.md`
+     - `~/.rimoo/rules.md`
      - `~/.rimoo/workstyle.json`
      - `~/.rimoo/share.txt`
      - `~/.rimoo/share.png` (`~/.rimoo/share.html` when Chrome is not installed)
-   - Say that `report.md` keeps their own quotes and stays local, and that `CLAUDE.md` is ready to add to their own `~/.claude/CLAUDE.md`.
+   - Say that `report.md` keeps their own quotes and stays local, and that `SKILL.md` holds the top rules while `rules.md` has all of them.
+   - The last line of this same message is exactly: "Install this as /my-workstyle so Claude loads it in future sessions? (yes / no)". Ask no other question before it.
+   - Do not offer to run the remaining chunks. Explain it only if the user asks.
    - Do not write to `~/.claude/CLAUDE.md` or any other file unless the user asks.
    - If the user wants English titles on the card, run the same command again with `--lang en`; that makes one small call to translate five titles.
-   - After a trial run, say that running `/rimoo` again continues with the remaining chunks; finished chunks are kept.
 
-6. Offer to install the skill.
-   - Ask: "Install this as /my-workstyle so Claude loads it in future sessions? (yes / no)".
+6. Install on the answer.
    - On yes run `npx -y rimoo@latest analyze --out ~/.rimoo --install-skill` (all chunks are done, so this only re-exports and installs; nothing is sent to Claude). After a trial run, add `--sample 2` so it uses the same two chunks.
-   - If the CLI says the skill already exists with different rules, tell the user and offer `--skill-name <another-name>`.
-   - On no, say the file is at `~/.rimoo/SKILL.md`.
+   - Then show the user the three lines under `Next` (`接下來` when the rules are in Chinese) that the CLI printed at the end, as they are.
+   - If the CLI says the skill already exists with different rules, ask only: "Replace it (--force-skill) or install under another name (--skill-name <name>)?" Then run the same command with the flag they chose.
+   - On no, say the files are in `~/.rimoo/SKILL.md` and `~/.rimoo/rules.md`, and give the other ways from `Next`: run again with `--install-skill` later, or copy `~/.rimoo/CLAUDE.md` into a project's root folder.

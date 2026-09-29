@@ -49,7 +49,8 @@ These files in `./rimoo-out`:
 
 - `report.md`: the full analysis, with your own prompts quoted as evidence.
 - `CLAUDE.md`: your rules as instructions, ready to drop into a project.
-- `SKILL.md`: the same working style as a portable skill.
+- `SKILL.md`: your top 12 rules as a portable skill, with a short note on how to use it.
+- `rules.md`: every rule, installed next to `SKILL.md`.
 - `workstyle.json`: the rules in a machine-readable form.
 - `share.txt`: a short summary to paste into a README or a LinkedIn post.
 - `share.html` and, when Chrome is installed, `share.png`: a 1080×1080 card for LinkedIn or X. Pass `--lang en` for English titles.
@@ -74,13 +75,17 @@ Found with Rimoo — npx rimoo analyze
 
 ### Use it
 
-When the run ends, Rimoo asks whether to install `SKILL.md` as `/my-workstyle` in Claude Code; `--install-skill` installs it without asking. `CLAUDE.md` is never installed for you: copy it into a project's root folder to have Claude follow the rules there.
+When the run ends, Rimoo asks whether to install `SKILL.md` and `rules.md` as `/my-workstyle` in Claude Code (`--install-skill` installs without asking), then prints the next steps:
+
+1. In a new Claude Code session, type `/my-workstyle`: Claude follows these rules for that session.
+2. To have them on all the time in one project, copy `rimoo-out/CLAUDE.md` into that project's root folder. Rimoo never copies it for you.
+3. `rimoo-out/share.png` is ready to post; `share.txt` is the text version.
 
 ## Privacy
 
 - Everything runs on your machine. The only network calls are the ones your own Claude Code makes.
 - Pasted contents in your history are never read.
-- `CLAUDE.md`, `SKILL.md`, `share.txt`, `share.html` and `workstyle.json` go through a gate that removes file paths, project names, emails, URLs, phone numbers and keys. `--allow-paths` keeps paths and project names.
+- `CLAUDE.md`, `SKILL.md`, `rules.md`, `share.txt`, `share.html` and `workstyle.json` go through a gate that removes file paths, project names, emails, URLs, phone numbers and keys. `--allow-paths` keeps paths and project names.
 - `report.md` keeps your own quotes and stays local. Don't share it as is.
 
 ## How it works
@@ -111,10 +116,10 @@ Options:
   --model <name>     model for Claude Code to use, passed to claude --model as is
   --with-transcripts give short prompts Claude's previous message, read from the session
                      transcripts next to the history (more to analyze, so it costs more)
-  --allow-paths      keep file paths and project names in CLAUDE.md, SKILL.md, workstyle.json and the share files
+  --allow-paths      keep file paths and project names in CLAUDE.md, SKILL.md, rules.md, workstyle.json and the share files
   --lang en          share.txt and the share card in English (translates the top titles once with Claude Code)
   --card-size <WxH>  share card size, e.g. 1200x627 (default: 1080x1080)
-  --install-skill    add SKILL.md to Claude Code as /my-workstyle without asking
+  --install-skill    add SKILL.md and rules.md to Claude Code as /my-workstyle without asking
   --skill-name <name>
                      install the skill under this name instead (a-z, 0-9 and -)
   --force-skill      replace an installed skill of the same name that has different rules

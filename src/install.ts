@@ -38,40 +38,47 @@ export function skillNameFrom(skillMd: string): string {
 export interface InstallResult {
   /** installed: written; same: already there with this content; exists: there with other content, left alone. */
   kind: 'installed' | 'same' | 'exists';
+  /** The skill's folder. */
   path: string;
 }
 
-/** Write SKILL.md to <skillsDir>/<name>/SKILL.md. Never replaces a different file unless `force`. */
+/**
+ * Write each of `files` (name → content) into <skillsDir>/<name>/, as one set: `same` when every file is already
+ * there with this content, `exists` when any is there with other content (then nothing is written), unless `force`.
+ */
 export async function installSkill(opts: {
-  skillMd: string;
+  files: Record<string, string>;
   name: string;
   env?: NodeJS.ProcessEnv;
   force?: boolean;
 }): Promise<InstallResult> {
   const dir = path.join(skillsDir(opts.env), opts.name);
-  const file = path.join(dir, 'SKILL.md');
-  let current: string | null = null;
-  try {
-    current = await readFile(file, 'utf8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  let same = true;
+  let differs = false;
+  for (const [file, text] of Object.entries(opts.files)) {
+    let current: string | null = null;
+    try {
+      current = await readFile(path.join(dir, file), 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    if (current !== text) same = false;
+    if (current !== null && current !== text) differs = true;
   }
-  if (current === opts.skillMd) return { kind: 'same', path: file };
-  if (current !== null && !opts.force) return { kind: 'exists', path: file };
+  if (same) return { kind: 'same', path: dir };
+  if (differs && !opts.force) return { kind: 'exists', path: dir };
   await mkdir(dir, { recursive: true });
-  await writeFile(file, opts.skillMd, 'utf8');
-  return { kind: 'installed', path: file };
+  for (const [file, text] of Object.entries(opts.files)) await writeFile(path.join(dir, file), text, 'utf8');
+  return { kind: 'installed', path: dir };
 }
 
 /** Everything the install step prints, in one place. Paths are passed in as they should be shown. */
 export const TEXT = {
   question: (name: string, dir: string) => `Install as /${name} in ${dir}? [y/N] `,
-  replace: (file: string) => `${file} already exists with different rules; replace it? [y/N] `,
-  installed: (file: string, name: string) => `Installed ${file} — type /${name} in a new Claude Code session.\n`,
-  same: (file: string, name: string) => `/${name} is already installed with these rules (${file}).\n`,
-  exists: (file: string) =>
-    `${file} already exists with different rules. Pass --skill-name <other> to install under another name, or --force-skill to replace it.\n`,
-  hint: (name: string) => `Pass --install-skill to add these rules as /${name} in Claude Code.\n`,
+  replace: (dir: string) => `${dir} already exists with different rules; replace it? [y/N] `,
+  installed: (dir: string) => `Installed ${dir}\n`,
+  same: (dir: string, name: string) => `/${name} is already installed with these rules (${dir}).\n`,
+  exists: (dir: string) =>
+    `${dir} already exists with different rules. Pass --skill-name <other> to install under another name, or --force-skill to replace it.\n`,
   failed: (why: string) => `Could not install the skill: ${why}\n`,
-  claudeMd: (file: string) => `CLAUDE.md: copy ${file} into a project root to have Claude load the rules there.\n`,
 };

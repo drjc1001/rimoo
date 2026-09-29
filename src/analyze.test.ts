@@ -154,7 +154,7 @@ test('runAnalyze --yes: runs every chunk, prints progress and totals, saves find
     assert.doesNotMatch(out, /--sample/);
     assert.match(
       out,
-      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\nPass --install-skill to add these rules as \/my-workstyle in Claude Code\.\nCLAUDE\.md: copy rimoo-out\/CLAUDE\.md into a project root to have Claude load the rules there\.\n\n$/,
+      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/rules\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\n\nNext\n1\. Run again with --install-skill, then type \/my-workstyle in a new Claude Code session\.\n2\. To have them on all the time in one project, copy rimoo-out\/CLAUDE\.md into that project's root folder\.\n3\. Open rimoo-out\/share\.html in a browser and take a screenshot to post it; share\.txt is the text version\.\n\n$/,
     );
     assert.deepEqual((await readCalls(log)).map((x) => x.part), [1, 2, 3]);
     const files = (await readdir(path.join(dir, 'rimoo-out', 'findings'))).sort();
@@ -292,10 +292,10 @@ test('runAnalyze: chunks done → merge → four exports, the §8 summary and Sa
           `2\\. ${FIXTURE_RULES.P}（出現於 1 段、4 則）\n`,
       ),
     );
-    assert.match(out, /\n6\. 不要客套話。（出現於 1 段、2 則）\n\nOpen share\.html in a browser and take a screenshot to get the image\.\n\nSaved /);
+    assert.match(out, /\n6\. 不要客套話。（出現於 1 段、2 則）\n\nSaved /);
     assert.match(
       out,
-      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\nPass --install-skill to add these rules as \/my-workstyle in Claude Code\.\nCLAUDE\.md: copy rimoo-out\/CLAUDE\.md into a project root to have Claude load the rules there\.\n\n$/,
+      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/rules\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\n\n接下來\n1\. 加上 --install-skill 再跑一次，然後在新的 Claude Code 對話輸入 \/my-workstyle。\n2\. 想在某個專案一直套用，把 rimoo-out\/CLAUDE\.md 複製到那個專案的根目錄。\n3\. 用瀏覽器打開 rimoo-out\/share\.html 截圖就能貼出去；share\.txt 是文字版。\n\n$/,
     );
     const o = path.join(dir, 'rimoo-out');
     const [report, claudeMd, skill, workstyle] = await Promise.all(
@@ -452,7 +452,8 @@ test('runAnalyze: with a Chrome on PATH share.png is made at the card size and s
       assert.ok(args!.includes('--window-size=1200,627'));
       assert.equal(await readFile(png, 'utf8'), 'PNG');
       assert.match(c.out.join(''), /\nSaved rimoo-out\/share\.png\n/);
-      assert.doesNotMatch(c.out.join(''), /take a screenshot/);
+      assert.doesNotMatch(c.out.join(''), /share\.html 截圖|take a screenshot/);
+      assert.match(c.out.join(''), /\n3\. rimoo-out\/share\.png 可以直接貼出去；share\.txt 是文字版。\n/);
       assert.match(await readFile(path.join(dir, 'rimoo-out', 'share.html'), 'utf8'), /width: 1200px; height: 627px/);
     } finally {
       await rm(chrome.dir, { recursive: true, force: true });
@@ -462,12 +463,12 @@ test('runAnalyze: with a Chrome on PATH share.png is made at the card size and s
 
 // ------------------------------------------------------------------------ T-021: install SKILL.md as a skill (fake)
 
-test('runAnalyze: no terminal and no --install-skill only prints the hint; nothing is installed', { skip: posixOnly }, async () => {
+test('runAnalyze: no terminal and no --install-skill: Next says to run again with it; nothing is installed', { skip: posixOnly }, async () => {
   await withFindings(async ({ dir, history, env }) => {
     const c = capture();
     const code = await runAnalyze({ historyPath: history, chunkSize: 2, yes: true, env, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr });
     assert.equal(code, 0, c.err.join(''));
-    assert.match(c.out.join(''), /\nPass --install-skill to add these rules as \/my-workstyle in Claude Code\.\n/);
+    assert.match(c.out.join(''), /\n接下來\n1\. 加上 --install-skill 再跑一次，然後在新的 Claude Code 對話輸入 \/my-workstyle。\n2\. /);
     assert.doesNotMatch(c.out.join(''), /\[y\/N\] $/m);
     await assert.rejects(readdir(path.join(env.CLAUDE_CONFIG_DIR!, 'skills')));
   });
@@ -478,15 +479,18 @@ test('runAnalyze --install-skill: installs without a terminal, exit 0; the next 
     const base = { historyPath: history, chunkSize: 2, yes: true, installSkill: true, env, cwd: dir };
     const c = capture();
     assert.equal(await runAnalyze({ ...base, stdin: pipe(), stdout: c.stdout, stderr: c.stderr }), 0, c.err.join(''));
-    const file = path.join(env.CLAUDE_CONFIG_DIR!, 'skills', 'my-workstyle', 'SKILL.md');
-    assert.equal(await readFile(file, 'utf8'), await readFile(path.join(dir, 'rimoo-out', 'SKILL.md'), 'utf8'));
+    const skill = path.join(env.CLAUDE_CONFIG_DIR!, 'skills', 'my-workstyle');
+    for (const f of ['SKILL.md', 'rules.md']) {
+      assert.equal(await readFile(path.join(skill, f), 'utf8'), await readFile(path.join(dir, 'rimoo-out', f), 'utf8'), f);
+    }
     const out = c.out.join('');
-    assert.ok(out.includes(`Installed ${file} — type /my-workstyle in a new Claude Code session.\n`), out);
-    assert.match(out, /CLAUDE\.md: copy rimoo-out\/CLAUDE\.md into a project root/);
+    assert.ok(out.includes(`Installed ${skill}${path.sep}\n`), out);
+    assert.match(out, /\n接下來\n1\. 開一個新的 Claude Code 對話，輸入 \/my-workstyle：這次對話 Claude 就照這些規則做。\n2\. 想在某個專案一直套用，把 rimoo-out\/CLAUDE\.md 複製到那個專案的根目錄。\n3\. /);
 
     const again = capture();
     assert.equal(await runAnalyze({ ...base, stdin: pipe(), stdout: again.stdout, stderr: again.stderr }), 0);
-    assert.ok(again.out.join('').includes(`/my-workstyle is already installed with these rules (${file}).\n`));
+    assert.ok(again.out.join('').includes(`/my-workstyle is already installed with these rules (${skill}${path.sep}).\n`));
+    assert.match(again.out.join(''), /\n1\. 開一個新的 Claude Code 對話/);
   });
 });
 
@@ -508,14 +512,17 @@ test('runAnalyze --skill-name foo installs under foo/', { skip: posixOnly }, asy
     });
     assert.equal(code, 0, c.err.join(''));
     assert.deepEqual(await readdir(path.join(env.CLAUDE_CONFIG_DIR!, 'skills')), ['foo']);
-    assert.match(c.out.join(''), /type \/foo in a new Claude Code session/);
+    assert.deepEqual((await readdir(path.join(env.CLAUDE_CONFIG_DIR!, 'skills', 'foo'))).sort(), ['SKILL.md', 'rules.md']);
+    assert.match(c.out.join(''), /\n1\. 開一個新的 Claude Code 對話，輸入 \/foo：/);
+    assert.match(await readFile(path.join(dir, 'rimoo-out', 'SKILL.md'), 'utf8'), /^---\nname: foo\n[\s\S]*輸入 \/foo，/);
   });
 });
 
 test('runAnalyze --install-skill: a different skill of the same name is kept unless --force-skill', { skip: posixOnly }, async () => {
   await withFindings(async ({ dir, history, env }) => {
-    const file = path.join(env.CLAUDE_CONFIG_DIR!, 'skills', 'my-workstyle', 'SKILL.md');
-    await mkdir(path.dirname(file), { recursive: true });
+    const skill = path.join(env.CLAUDE_CONFIG_DIR!, 'skills', 'my-workstyle');
+    const file = path.join(skill, 'SKILL.md');
+    await mkdir(skill, { recursive: true });
     await writeFile(file, 'my own rules\n');
     const base = { historyPath: history, chunkSize: 2, yes: true, installSkill: true, env, cwd: dir };
 
@@ -524,14 +531,16 @@ test('runAnalyze --install-skill: a different skill of the same name is kept unl
     assert.equal(await readFile(file, 'utf8'), 'my own rules\n');
     assert.ok(
       c.out.join('').includes(
-        `${file} already exists with different rules. Pass --skill-name <other> to install under another name, or --force-skill to replace it.\n`,
+        `${skill}${path.sep} already exists with different rules. Pass --skill-name <other> to install under another name, or --force-skill to replace it.\n`,
       ),
     );
+    assert.match(c.out.join(''), /\n1\. \/my-workstyle 已經裝了另一版規則。加上 --install-skill --force-skill/);
+    await assert.rejects(readFile(path.join(skill, 'rules.md'), 'utf8')); // nothing of the set is written
 
     // On a terminal the replace question comes first; no answer is no.
     const t = capture();
     assert.equal(await runAnalyze({ ...base, stdin: tty(''), stdout: t.stdout, stderr: t.stderr }), 0);
-    assert.ok(t.out.join('').includes(`${file} already exists with different rules; replace it? [y/N] `));
+    assert.ok(t.out.join('').includes(`${skill}${path.sep} already exists with different rules; replace it? [y/N] `));
     assert.equal(await readFile(file, 'utf8'), 'my own rules\n');
 
     const f = capture();
@@ -550,6 +559,6 @@ test('runAnalyze --install-skill: a failed install prints one line and still exi
       historyPath: history, chunkSize: 2, yes: true, installSkill: true, env, cwd: dir, stdin: pipe(), stdout: c.stdout, stderr: c.stderr,
     });
     assert.equal(code, 0);
-    assert.match(c.out.join(''), /\nCould not install the skill: .+\nCLAUDE\.md: copy /);
+    assert.match(c.out.join(''), /\nCould not install the skill: .+\n\n接下來\n1\. 加上 --install-skill 再跑一次/);
   });
 });

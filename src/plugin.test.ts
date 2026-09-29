@@ -53,3 +53,13 @@ test('the skill names the share card, offers --lang en and --install-skill, and 
   }
   assert.ok(body.includes('Install this as /my-workstyle'), 'asks before installing');
 });
+
+test('the skill lists rules.md, ends the result with the install question before Next, and offers --force-skill', async () => {
+  const { body } = await readSkill();
+  assert.ok(body.includes('~/.rimoo/rules.md'), 'lists rules.md');
+  const ask = body.indexOf('(yes / no)');
+  assert.ok(ask > 0, 'asks yes / no');
+  assert.ok(ask < body.indexOf('Next'), 'the install question comes before the Next lines');
+  assert.ok(body.includes('--force-skill'), 'offers --force-skill');
+  assert.ok(body.includes('costs nothing'), 'says a repeated trial costs nothing');
+});
