@@ -55,3 +55,6 @@ created: 2026-09-29
 
 - 2026-09-29：PR #8／#9 merged（他按），進 main `fc2404c`。
 - 2026-09-29 重合併（他 1.ok）：`--remerge --yes --install-skill --force-skill`，7 次呼叫 $1.00 定價；561 條 findings → 166 條規則（上次 149，模型分組不同）；時機分布 plan 33／build 42／deliver 53／deploy 18／always 20。四張清單已裝進 `~/.claude/skills/my-workstyle/checklists/`（32／42／53／18 條）。deliver 53 條偏長，之後看要不要每張只留前 N 條（T-026 一起想）。
+
+## 發佈紀錄 2026-09-29（Fable）
+- `rimoo@0.3.0` 11:32 UTC 上 npm（registry 慢 90 秒露出）；乾淨目錄 `npx -y rimoo@0.3.0 analyze --help` 列出 `--remerge`、`--install-skill`；`claude plugin update` 0.2.1 → 0.3.0。
