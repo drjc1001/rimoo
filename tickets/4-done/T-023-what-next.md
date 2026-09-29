@@ -40,3 +40,5 @@ created: 2026-09-29
 - 補一處：已裝了不同規則時，「接下來」第 1 行改講 `--force-skill`／`--skill-name`（原本會叫人再加 `--install-skill`，等於繞圈）；中英各一句，測試對應改。
 - 真機：用凍結輸入重出 `rimoo-out/`（零重跑）→ `--install-skill --force-skill` 換掉 147 條版 → `~/.claude/skills/my-workstyle/` 現在是 SKILL.md（用法三行＋12 條＋「全部規則見 rules.md」）與 rules.md（147 條）；這個對話當場就看到新的 `/my-workstyle`。
 - 沒驗：外掛「最後一行是安裝問句」要 Jasper 在對話裡 `/rimoo` 看（0.3.0 發了之後）。
+
+- 2026-09-29：PR #8／#9 merged（他按），進 main `fc2404c`。

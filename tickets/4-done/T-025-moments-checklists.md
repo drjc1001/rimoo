@@ -52,3 +52,5 @@ created: 2026-09-29
 - 真機零花費：用凍結輸入重出 `rimoo-out/`，四張清單有產出（現在的 merged.json 沒有 moment，全部當 always，所以四張都是「這個時機還沒有規則」那一句）；SKILL.md 有 `argument-hint`、用法提到 plan／build／deliver／deploy、「When invoked with an argument」段、12 條。
 - Opus 兩處票外改動都留：合併沿用時的提示改指 `--remerge`（`--force` 會連分段重跑，指錯很貴）；Saved 那行清單只列資料夾。
 - 還沒做：Jasper 那份 `--remerge`（7 次呼叫約 3 美元定價）等他點頭；跑完 `--install-skill --force-skill` 換掉現在裝的版本；他在對話裡 `/my-workstyle plan` 看是不是只讀那張。
+
+- 2026-09-29：PR #8／#9 merged（他按），進 main `fc2404c`。
