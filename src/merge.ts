@@ -22,6 +22,16 @@ import {
 } from './runner.ts';
 import { estimateChunkTokens, estimateTokens } from './tokens.ts';
 
+/** When a rule applies; each but always has its own checklist. */
+export const MOMENTS = ['plan', 'build', 'deliver', 'deploy', 'always'] as const;
+export type Moment = (typeof MOMENTS)[number];
+
+/** A moment as the model or an older merged.json gave it: anything not in MOMENTS, or none, is always. */
+export function toMoment(v: unknown): Moment {
+  const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+  return (MOMENTS as readonly string[]).includes(s) ? (s as Moment) : 'always';
+}
+
 /** Most quotes kept per merged rule. */
 export const MAX_EVIDENCE = 5;
 
@@ -48,6 +58,8 @@ export interface MergedRule {
   titleEn?: string | undefined;
   rule: string;
   confidence: Confidence;
+  /** When the rule applies; always when the model gave none (and in a merged.json from before 0.3.0). */
+  moment: Moment;
   /** Sum of the members' frequency. */
   frequency: number;
   /** Distinct chunks the members came from. */
@@ -145,6 +157,7 @@ export interface MergeGroup {
   title: string | null;
   rule: string;
   confidence: Confidence | null;
+  moment: Moment;
   members: number[];
 }
 
@@ -191,6 +204,7 @@ export function validateMerge(raw: unknown, valid: Set<number>): { groups: Merge
       title: str(g.title),
       rule,
       confidence: (CONFIDENCE as readonly unknown[]).includes(g.confidence) ? (g.confidence as Confidence) : null,
+      moment: toMoment(g.moment),
       members,
     });
   }
@@ -248,7 +262,7 @@ export function combine(findings: FlatFinding[], groups: MergeGroup[]): MergedRu
     ...groups,
     ...findings
       .filter((f) => !taken.has(f.index))
-      .map((f) => ({ key: null, title: null, rule: f.rule, confidence: f.confidence, members: [f.index] })),
+      .map((f) => ({ key: null, title: null, rule: f.rule, confidence: f.confidence, moment: 'always' as const, members: [f.index] })),
   ];
   const rules: MergedRule[] = [];
   for (const g of all) {
@@ -260,6 +274,7 @@ export function combine(findings: FlatFinding[], groups: MergeGroup[]): MergedRu
       title: g.title,
       rule: g.rule,
       confidence: g.confidence ?? members.map((m) => m.confidence).sort((a, b) => rank(a) - rank(b))[0]!,
+      moment: g.moment,
       frequency: members.reduce((a, m) => a + m.frequency, 0),
       chunks: new Set(members.map((m) => m.chunk)).size,
       members: members.map((m) => m.index),
@@ -315,7 +330,11 @@ export async function planMerge(opts: { outDir: string; manifest: Manifest; forc
   if (!opts.force) {
     try {
       const m = JSON.parse(await readFile(mergedFile(opts.outDir), 'utf8')) as Merged;
-      if (m.findingsSha256 === loaded.findingsSha256 && Array.isArray(m.rules)) cached = m;
+      if (m.findingsSha256 === loaded.findingsSha256 && Array.isArray(m.rules)) {
+        // A merged.json from before 0.3.0 has no moment: its rules count as always until merged again.
+        for (const r of m.rules) r.moment = toMoment(r.moment);
+        cached = m;
+      }
     } catch {
       // none yet
     }

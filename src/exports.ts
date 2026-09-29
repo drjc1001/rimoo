@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Merged, MergedRule } from './merge.ts';
+import type { Merged, MergedRule, Moment } from './merge.ts';
 import { CATEGORIES, type Category, type Evidence } from './runner.ts';
 import { localDate, type Stats } from './stats.ts';
 import { formatRemoved, redact, type Hit, type HitKind } from './privacy.ts';
@@ -57,14 +57,23 @@ const TEXT = {
     skill: {
       what: (rules: number, prompts: number) => `What this is: ${count(rules, 'rule', 'rules')} extracted from ${n(prompts)} Claude Code prompts by Rimoo.`,
       how: (name: string) =>
-        `How to use: type /${name} at the start of a Claude Code session; Claude follows these rules for that session. ` +
-        'To have them always on in a project, copy CLAUDE.md into its root.',
+        `How to use: type /${name} at the start of a Claude Code session, or /${name} plan, build, deliver or deploy ` +
+        'right before that step to go through its checklist. To have them always on in a project, copy CLAUDE.md into its root.',
       more: 'More: the full list is in rules.md next to this file.',
       full: (rules: number) => `Full list: rules.md (${count(rules, 'rule', 'rules')})`,
     },
+    checklist: {
+      plan: '# Before planning (plan)',
+      build: '# Before building (build)',
+      deliver: '# Before delivering (deliver)',
+      deploy: '# Before deploying (deploy)',
+      intro: 'Go through every line before you start; fix what fails first.',
+      none: 'No rule found for this moment yet.',
+    },
     next: {
       title: 'Next',
-      installed: (name: string) => `1. In a new Claude Code session, type /${name}: Claude follows these rules for that session.`,
+      installed: (name: string) =>
+        `1. In a new Claude Code session, type /${name} (or /${name} plan before planning): Claude follows these rules for that session.`,
       notInstalled: (name: string) => `1. Run again with --install-skill, then type /${name} in a new Claude Code session.`,
       exists: (name: string) =>
         `1. /${name} is already installed with other rules. Run again with --install-skill --force-skill to replace it, or --skill-name <other> to keep both.`,
@@ -93,14 +102,23 @@ const TEXT = {
     skill: {
       what: (rules: number, prompts: number) => `這是什麼：Rimoo 從 ${n(prompts)} 則 Claude Code 歷史訊息抽出的 ${n(rules)} 條規則。`,
       how: (name: string) =>
-        `怎麼用：在 Claude Code 對話開頭輸入 /${name}，這次對話 Claude 就照這些規則做。` +
-        '想在某個專案一直套用，把 CLAUDE.md 複製到那個專案的根目錄。',
+        `怎麼用：在 Claude Code 對話開頭輸入 /${name}；要規劃、動手、交付或上線前，輸入 /${name} plan、build、deliver 或 deploy，` +
+        '逐項看過那一步的清單。想在某個專案一直套用，把 CLAUDE.md 複製到那個專案的根目錄。',
       more: '更多：全部規則在同一個資料夾的 rules.md。',
       full: (rules: number) => `全部規則見 rules.md（${n(rules)} 條）`,
     },
+    checklist: {
+      plan: '# 規劃前（plan）',
+      build: '# 動手前（build）',
+      deliver: '# 交付前（deliver）',
+      deploy: '# 上線前（deploy）',
+      intro: '逐項看過再動手；沒過的先處理。',
+      none: '這個時機還沒有規則。',
+    },
     next: {
       title: '接下來',
-      installed: (name: string) => `1. 開一個新的 Claude Code 對話，輸入 /${name}：這次對話 Claude 就照這些規則做。`,
+      installed: (name: string) =>
+        `1. 開一個新的 Claude Code 對話，輸入 /${name}（規劃前輸入 /${name} plan）：這次對話 Claude 就照這些規則做。`,
       notInstalled: (name: string) => `1. 加上 --install-skill 再跑一次，然後在新的 Claude Code 對話輸入 /${name}。`,
       exists: (name: string) => `1. /${name} 已經裝了另一版規則。加上 --install-skill --force-skill 再跑一次就換掉；想兩份都留用 --skill-name 取別的名字。`,
       claudeMd: (file: string) => `2. 想在某個專案一直套用，把 ${file} 複製到那個專案的根目錄。`,
@@ -238,9 +256,27 @@ export function renderSkillMd(input: ExportInput): string {
   const name = input.skillName ?? DEFAULT_SKILL_NAME;
   const rules = merged.rules.filter(isPortable);
   const description = t.description(stats.prompts, rules.slice(0, 3).map((r) => r.key)).replace(/"/g, "'");
-  const out = ['---', `name: ${name}`, `description: "${description}"`, '---', '', '# My workstyle', ''];
+  const out = [
+    '---',
+    `name: ${name}`,
+    `description: "${description}"`,
+    `argument-hint: "[${CHECKLIST_MOMENTS.join('|')}]"`,
+    '---',
+    '',
+    '# My workstyle',
+    '',
+  ];
   out.push(t.skill.what(rules.length, stats.prompts), t.skill.how(name), t.skill.more, '', '## Rules', '');
-  out.push(...ruleLines(rules.slice(0, TOP_SKILL_RULES), lang), '', t.skill.full(rules.length), '');
+  out.push(...ruleLines(rules.slice(0, TOP_SKILL_RULES), lang), '');
+  // For the model, so English whatever the rules' language.
+  out.push(
+    '## When invoked with an argument',
+    '',
+    'If $ARGUMENTS is one of plan, build, deliver or deploy, read checklists/$ARGUMENTS.md in this folder and go through ' +
+      'every line before acting. Any other text is the task to do under these rules.',
+    '',
+  );
+  out.push(t.skill.full(rules.length), '');
   return out.join('\n');
 }
 
@@ -250,6 +286,23 @@ export function renderRulesMd(input: ExportInput): string {
   const lang = rulesLang(merged.rules);
   const rules = merged.rules.filter(isPortable);
   return ['# Rules', '', TEXT[lang].intro(stats.prompts), '', ...ruleLines(rules, lang), ''].join('\n');
+}
+
+/** The moments with a checklist of their own; always rules stay in SKILL.md and rules.md only. */
+export const CHECKLIST_MOMENTS = ['plan', 'build', 'deliver', 'deploy'] as const satisfies readonly Moment[];
+export type ChecklistMoment = (typeof CHECKLIST_MOMENTS)[number];
+
+/** checklists/<moment>.md: the portable rules of that moment, in rank order, as tick boxes like rules.md's lines. */
+export function renderChecklist(input: ExportInput, moment: ChecklistMoment): string {
+  const lang = rulesLang(input.merged.rules);
+  const t = TEXT[lang].checklist;
+  const rules = input.merged.rules.filter((r) => isPortable(r) && r.moment === moment);
+  if (rules.length === 0) return [t[moment], '', t.none, ''].join('\n');
+  const lines = rules.map((r) => {
+    const { lead, rest } = skillLine(r, lang);
+    return `- [ ] **${lead}**${rest === '' ? '' : ` ${rest}`}`;
+  });
+  return [t[moment], '', t.intro, '', ...lines, ''].join('\n');
 }
 
 /** The lines printed after the exports and the install step: how to use what was written. */
@@ -361,7 +414,19 @@ export function renderShareCard(input: ExportInput, opts: Pick<ExportOptions, 'a
   });
 }
 
-export const EXPORT_FILES = ['report.md', 'CLAUDE.md', 'SKILL.md', 'rules.md', 'workstyle.json', 'share.txt', 'share.html'] as const;
+export const EXPORT_FILES = [
+  'report.md',
+  'CLAUDE.md',
+  'SKILL.md',
+  'rules.md',
+  'checklists/plan.md',
+  'checklists/build.md',
+  'checklists/deliver.md',
+  'checklists/deploy.md',
+  'workstyle.json',
+  'share.txt',
+  'share.html',
+] as const;
 export type ExportFile = (typeof EXPORT_FILES)[number];
 
 export interface ExportOptions {
@@ -381,6 +446,10 @@ const GATE: Record<ExportFile, readonly HitKind[] | 'all' | 'none'> = {
   'CLAUDE.md': 'all',
   'SKILL.md': 'all',
   'rules.md': 'all',
+  'checklists/plan.md': 'all',
+  'checklists/build.md': 'all',
+  'checklists/deliver.md': 'all',
+  'checklists/deploy.md': 'all',
   'workstyle.json': 'all',
   'share.txt': 'all',
   // Gated string by string in renderShareCard, before the escape.
@@ -427,6 +496,10 @@ export async function writeExports(outDir: string, input: ExportInput, opts: Exp
     'CLAUDE.md': renderClaudeMd(input),
     'SKILL.md': renderSkillMd(input),
     'rules.md': renderRulesMd(input),
+    'checklists/plan.md': renderChecklist(input, 'plan'),
+    'checklists/build.md': renderChecklist(input, 'build'),
+    'checklists/deliver.md': renderChecklist(input, 'deliver'),
+    'checklists/deploy.md': renderChecklist(input, 'deploy'),
     'workstyle.json': JSON.stringify(renderWorkstyle(input), null, 2) + '\n',
     'share.txt': renderShare(input),
     'share.html': renderShareCard(input, { allowPaths: opts.allowPaths, names: opts.names }),
@@ -435,6 +508,7 @@ export async function writeExports(outDir: string, input: ExportInput, opts: Exp
   for (const f of EXPORT_FILES) {
     const { text, hits } = gate(f, contents[f], opts.allowPaths === true, opts.names ?? []);
     const file = path.join(outDir, f);
+    await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, text, 'utf8');
     if (hits.length > 0) opts.onRemoved?.(f, hits);
     opts.onWritten?.(f, text);

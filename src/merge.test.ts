@@ -17,6 +17,7 @@ import {
   rankRules,
   runMerge,
   snakeKey,
+  toMoment,
   validateMerge,
   type FlatFinding,
   type Merged,
@@ -105,6 +106,8 @@ test('buildMergePrompt: one category, a numbered line per finding, no quotes', (
   assert.match(p, /\n<findings>\n3 \| 2 \| 4 \| high \| 先講結論 \| 看到長報告 \/ 之後\n9 \| 1 \| 1 \| medium \| line break \| -\n<\/findings>\n$/);
   assert.match(p, /"members":\[3,17,42\]/);
   assert.match(p, /Put each index in at most one group/);
+  assert.match(p, /"moment":"plan"/);
+  assert.match(p, /- moment: when the rule applies\. One of: "plan" .* "build" .* "deliver" .* "deploy" .* "always" \(at any time\)\. Pick the single best fit; "always" when none stands out\.\n/);
   assert.doesNotMatch(p, /This is part/); // the fake tells chunk prompts from merge prompts by it
   assert.doesNotMatch(p, /\bq\b|2026-01/); // evidence stays out
 });
@@ -137,6 +140,23 @@ test('validateMerge: unknown and repeated indexes are dropped and counted; empty
   assert.throws(() => validateMerge({ findings: [] }, new Set()), /no "rules" list/);
 });
 
+test('validateMerge: moment kept when it is one of the five, else always; toMoment the same', () => {
+  const raw = {
+    rules: [
+      { rule: 'A', moment: 'plan', members: [1] },
+      { rule: 'B', moment: 'Deploy ', members: [2] },
+      { rule: 'C', moment: 'mockup', members: [3] },
+      { rule: 'D', members: [4] },
+      { rule: 'E', moment: 7, members: [5] },
+    ],
+  };
+  const { groups } = validateMerge(raw, new Set([1, 2, 3, 4, 5]));
+  assert.deepEqual(groups.map((g) => g.moment), ['plan', 'deploy', 'always', 'always', 'always']);
+  for (const m of ['plan', 'build', 'deliver', 'deploy', 'always']) assert.equal(toMoment(m), m);
+  assert.equal(toMoment(undefined), 'always');
+  assert.equal(toMoment(null), 'always');
+});
+
 // --------------------------------------------------------------------------------------------- combine
 
 test('combine: frequency adds up, chunks counted, evidence joined, first trigger kept, leftovers stand alone', () => {
@@ -154,7 +174,7 @@ test('combine: frequency adds up, chunks counted, evidence joined, first trigger
     flat(5, { rule: 'Keep answers short, always', confidence: 'high' }),
   ];
   const rules = combine(findings, [
-    { key: 'Result First!', title: 'Result first', rule: 'Put the result first', confidence: null, members: [2, 1, 3] },
+    { key: 'Result First!', title: 'Result first', rule: 'Put the result first', confidence: null, moment: 'deliver', members: [2, 1, 3] },
   ]);
   const [merged, alone4, alone5] = rules;
   assert.equal(merged!.key, 'result_first');
@@ -169,6 +189,8 @@ test('combine: frequency adds up, chunks counted, evidence joined, first trigger
   assert.equal(merged!.evidence.filter((e) => e.id === 2).length, 1);
   assert.deepEqual([alone4!.key, alone4!.members, alone4!.confidence], ['rule_4', [4], 'low']);
   assert.equal(alone5!.key, 'keep_answers_short_always');
+  assert.equal(merged!.moment, 'deliver');
+  assert.deepEqual([alone4!.moment, alone5!.moment], ['always', 'always']); // no group, no moment given
   assert.equal(alone5!.title, null);
 });
 
@@ -193,8 +215,8 @@ test('rankRules: chunks, then frequency, then confidence; repeated keys get _2, 
     flat(4, { chunk: 1, frequency: 2, confidence: 'high', category: 'testing' }),
   ];
   const rules = combine(findings, [
-    { key: 'same', title: null, rule: 'x', confidence: 'low', members: [1] },
-    { key: 'same', title: null, rule: 'y', confidence: 'low', members: [2, 3] },
+    { key: 'same', title: null, rule: 'x', confidence: 'low', moment: 'always', members: [1] },
+    { key: 'same', title: null, rule: 'y', confidence: 'low', moment: 'always', members: [2, 3] },
   ]);
   const ranked = rankRules(rules);
   assert.deepEqual(ranked.map((r) => [r.key, r.chunks, r.frequency]), [
@@ -256,6 +278,19 @@ test('runMerge: one call per category, validated, joined back, ranked, written t
         ['with_unknown', 'communication', FIXTURE_RULES.D, 'low', 2, 1, [6]],
       ],
     );
+    // The fake gives deliver, " Plan " and "sometimes", and none for duplicate_member: what is not one of the five is always.
+    assert.deepEqual(
+      merged.rules.map((r) => [r.key, r.moment]),
+      [
+        ['result_first', 'deliver'],
+        ['result_first_2', 'deliver'],
+        ['plan_before_coding', 'plan'],
+        ['duplicate_member', 'always'],
+        ['result_first_3', 'deliver'],
+        ['with_unknown', 'always'],
+      ],
+    );
+    assert.deepEqual(onDisk.rules.map((r) => r.moment), merged.rules.map((r) => r.moment));
     const top = merged.rules[0]!;
     assert.equal(top.title, 'Title of 1');
     assert.equal(top.trigger, '看到長篇回報後');
@@ -285,6 +320,14 @@ test('planMerge: same findings reuse merged.json without calling; --force or a c
     assert.deepEqual(again.calls, []);
     assert.deepEqual(await runMerge({ claude: fake.claude, outDir, plan: again, env }), first);
     assert.equal((await readMergeCalls(mergeLog)).length, 3);
+
+    // A merged.json from before moments: reused, every rule read as always.
+    const old = JSON.parse(await readFile(mergedFile(outDir), 'utf8')) as Merged;
+    for (const r of old.rules) delete (r as Partial<typeof r>).moment;
+    await writeFile(mergedFile(outDir), JSON.stringify(old, null, 2) + '\n');
+    const older = await planMerge({ outDir, manifest });
+    assert.notEqual(older.cached, null);
+    assert.ok(older.cached!.rules.every((r) => r.moment === 'always'));
 
     const forced = await planMerge({ outDir, manifest, force: true });
     assert.equal(forced.cached, null);

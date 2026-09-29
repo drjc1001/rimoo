@@ -63,3 +63,9 @@ test('the skill lists rules.md, ends the result with the install question before
   assert.ok(body.includes('--force-skill'), 'offers --force-skill');
   assert.ok(body.includes('costs nothing'), 'says a repeated trial costs nothing');
 });
+
+test('the skill lists the four checklists', async () => {
+  const { body } = await readSkill();
+  assert.ok(body.includes('~/.rimoo/checklists/'), 'lists checklists/');
+  for (const m of ['plan', 'build', 'deliver', 'deploy']) assert.ok(body.includes(m), m);
+});

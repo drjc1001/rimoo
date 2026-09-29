@@ -259,7 +259,7 @@ export function formatMergeProgress(p: MergeProgress): string {
 /** After the merge: its totals, or that an earlier merge of the same findings was reused. */
 export function formatMergeTotal(m: Merged, reused: boolean): string {
   if (reused) {
-    return `Findings unchanged since the last merge; kept its ${plural(m.rules.length, 'rule', 'rules')}. Pass --force to merge again.\n\n`;
+    return `Findings unchanged since the last merge; kept its ${plural(m.rules.length, 'rule', 'rules')}. Pass --remerge to merge again.\n\n`;
   }
   return (
     `  Merged ${plural(m.findings, 'finding', 'findings')} into ${plural(m.rules.length, 'rule', 'rules')}: ` +

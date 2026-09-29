@@ -43,7 +43,8 @@ export interface InstallResult {
 }
 
 /**
- * Write each of `files` (name → content) into <skillsDir>/<name>/, as one set: `same` when every file is already
+ * Write each of `files` (path relative to the skill folder, such as checklists/plan.md → content) into
+ * <skillsDir>/<name>/, making the folders on the way, as one set: `same` when every file is already
  * there with this content, `exists` when any is there with other content (then nothing is written), unless `force`.
  */
 export async function installSkill(opts: {
@@ -67,8 +68,11 @@ export async function installSkill(opts: {
   }
   if (same) return { kind: 'same', path: dir };
   if (differs && !opts.force) return { kind: 'exists', path: dir };
-  await mkdir(dir, { recursive: true });
-  for (const [file, text] of Object.entries(opts.files)) await writeFile(path.join(dir, file), text, 'utf8');
+  for (const [file, text] of Object.entries(opts.files)) {
+    const target = path.join(dir, file);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, text, 'utf8');
+  }
   return { kind: 'installed', path: dir };
 }
 

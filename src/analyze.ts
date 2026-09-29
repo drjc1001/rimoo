@@ -50,6 +50,8 @@ export interface AnalyzeOptions {
   concurrency?: number | undefined;
   /** Analyze chunks and merge again even if already done. */
   force?: boolean | undefined;
+  /** Merge the findings again even if already merged; chunks with findings are not analyzed again. */
+  remerge?: boolean | undefined;
   /** Passed to `claude --model` as is. */
   model?: string | undefined;
   /** Give short prompts Claude's previous message, read from the session transcripts next to the history. */
@@ -60,7 +62,7 @@ export interface AnalyzeOptions {
   lang?: 'en' | undefined;
   /** share.html and share.png size (default 1080×1080). */
   cardSize?: CardSize | undefined;
-  /** After the exports, install SKILL.md and rules.md into Claude Code's skills without asking. */
+  /** After the exports, install SKILL.md, rules.md and the checklists into Claude Code's skills without asking. */
   installSkill?: boolean | undefined;
   /** Skill name to install under (default: the name in SKILL.md, my-workstyle). */
   skillName?: string | undefined;
@@ -225,7 +227,7 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
 
   /** Fold the findings into rules and write the five exports. Returns the exit code; adds the exports to `saved`. */
   async function mergeAndExport(claude: string, approved: boolean): Promise<number> {
-    const plan = await planMerge({ outDir, manifest, force: opts.force });
+    const plan = await planMerge({ outDir, manifest, force: opts.force === true || opts.remerge === true });
     if (plan.findings.length === 0) {
       opts.stdout('No findings to merge, so no report was written.\n\n');
       return 0;
@@ -294,19 +296,23 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
       names: projectNames(stats.perProject.map((p) => p.project)),
       onRemoved: (file, hits) => removed.push({ file, hits }),
       onWritten: (file, text) => {
-        if (file === 'SKILL.md' || file === 'rules.md') skill[file] = text;
+        if (file === 'SKILL.md' || file === 'rules.md' || file.startsWith('checklists/')) skill[file] = text;
       },
     });
     opts.stdout(formatTopRules(input) + '\n');
     if (removed.length > 0) opts.stdout(formatGate(removed) + '\n');
-    saved.push(...files.map(display));
+    // The four checklists are shown once, as their folder.
+    for (const f of files.map(display)) {
+      const shown = path.basename(path.dirname(f)) === 'checklists' ? `${path.dirname(f)}/` : f;
+      if (!saved.includes(shown)) saved.push(shown);
+    }
     const png = await sharePng(path.join(outDir, 'share.html'));
     exported = { lang: rulesLang(merged.rules), skill, png };
     return 0;
   }
 
   /**
-   * Offer SKILL.md and rules.md as a Claude Code skill: --install-skill installs, a terminal is asked. Then the Next
+   * Offer SKILL.md, rules.md and the checklists as a Claude Code skill: --install-skill installs, a terminal is asked. Then the Next
    * lines. Never changes the exit code; CLAUDE.md is only pointed at, never copied.
    */
   async function installStep(done: { lang: Lang; skill: Record<string, string>; png: boolean }): Promise<void> {

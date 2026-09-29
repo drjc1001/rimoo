@@ -16,8 +16,9 @@ import path from 'node:path';
  * line per call: { part, args, claudecode, stdinChars }.
  *
  * A merge prompt (one holding a <findings> block) gets a merge reply instead, built from the finding lines
- * i0, i1, … in it: {key "Result First!", title, i0's rule, high, [i0, i1]}, {plan_before_coding, i2's rule, medium,
- * [i2]}, {with_unknown, low, [999999, i3]}, {duplicate_member, high, [i0, i4]}; missing i's are left out.
+ * i0, i1, … in it: {key "Result First!", title, i0's rule, high, moment deliver, [i0, i1]}, {plan_before_coding,
+ * i2's rule, medium, moment " Plan ", [i2]}, {with_unknown, low, moment "sometimes", [999999, i3]}, {duplicate_member,
+ * high, no moment, [i0, i4]}; missing i's are left out.
  * The modes above apply to it too (fenced, garbage, error, crash). FAKE_CLAUDE_MERGE_FAIL_ON=<category> switches
  * to error for that category only. Merge calls are logged to FAKE_CLAUDE_MERGE_LOG=<file>, not FAKE_CLAUDE_LOG:
  * { category, args, stdinChars, prompt }.
@@ -81,15 +82,15 @@ process.stdin.on('end', () => {
     const block = input.slice(input.indexOf('<findings>'), input.indexOf('</findings>'));
     const lines = [...block.matchAll(/^(\\d+) \\| .*$/gm)].map((m) => ({ index: Number(m[1]), rule: m[0].split(' | ')[4] }));
     const at = (k) => lines[k];
-    const group = (key, extra, conf, members, ruleOf) => ({
+    const group = (key, extra, conf, members, ruleOf, moment) => ({
       key, ...extra, rule: at(ruleOf) ? at(ruleOf).rule : 'no rule', confidence: conf,
-      members: members.filter((m) => m !== undefined),
+      ...(moment === undefined ? {} : { moment }), members: members.filter((m) => m !== undefined),
     });
     const idx = (k) => (at(k) ? at(k).index : undefined);
     const rules = [
-      group('Result First!', { title: 'Title of ' + (at(0) ? at(0).index : '') }, 'high', [idx(0), idx(1)], 0),
-      group('plan_before_coding', {}, 'medium', [idx(2)], 2),
-      group('with_unknown', {}, 'low', [999999, idx(3)], 3),
+      group('Result First!', { title: 'Title of ' + (at(0) ? at(0).index : '') }, 'high', [idx(0), idx(1)], 0, 'deliver'),
+      group('plan_before_coding', {}, 'medium', [idx(2)], 2, ' Plan '),
+      group('with_unknown', {}, 'low', [999999, idx(3)], 3, 'sometimes'),
       group('duplicate_member', {}, 'high', [idx(0), idx(4)], 4),
     ].filter((g) => g.members.length > 0);
     json = JSON.stringify({ rules });

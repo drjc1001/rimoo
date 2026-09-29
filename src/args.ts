@@ -22,6 +22,7 @@ Options:
   --yes              run Claude Code without asking first
   --concurrency <n>  chunks to analyze at once, 1 to ${MAX_CONCURRENCY} (default: 1)
   --force            analyze chunks and merge again even if already done
+  --remerge          merge the findings into rules again (for example after an update), without analyzing the chunks again
   --model <name>     model for Claude Code to use, passed to claude --model as is
   --with-transcripts give short prompts Claude's previous message, read from the session
                      transcripts next to the history (more to analyze, so it costs more)
@@ -58,7 +59,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     'card-size',
     'skill-name',
   ]);
-  const flags = new Set(['prepare-only', 'yes', 'force', 'allow-paths', 'with-transcripts', 'install-skill', 'force-skill']);
+  const flags = new Set(['prepare-only', 'yes', 'force', 'remerge', 'allow-paths', 'with-transcripts', 'install-skill', 'force-skill']);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === '-h' || arg === '--help') {
@@ -167,6 +168,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
     yes: options.yes === true,
     concurrency,
     force: options.force === true,
+    remerge: options.remerge === true,
     model: str(options.model),
     allowPaths: options['allow-paths'] === true,
     withTranscripts: options['with-transcripts'] === true,

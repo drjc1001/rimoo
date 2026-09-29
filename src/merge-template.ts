@@ -40,7 +40,7 @@ Group the findings that describe the same habit, and write each group as one rul
 
 Reply with JSON only: no markdown fence, nothing before or after it. Shape:
 
-{"rules":[{"key":"result_first","title":"...","rule":"...","confidence":"high","members":[3,17,42]}]}
+{"rules":[{"key":"result_first","title":"...","rule":"...","confidence":"high","moment":"plan","members":[3,17,42]}]}
 
 What goes in each field:
 - members: the index numbers of the findings in this group, from the first column below. Put each index in at most one group. A finding that matches no other gets a group of its own.
@@ -48,6 +48,7 @@ What goes in each field:
 - title: the rule as a short imperative phrase of 2 to 6 words (or up to 12 Chinese characters), in the same language as rule. For example: "Result first", "結論先講".
 - key: the habit in 3 to 5 English words, lowercase snake_case, different for every group. For example: result_first, plan_before_coding, reuse_existing_code.
 - confidence: "high", "medium" or "low". high means the members together show it plainly; low means it rests on reading between the lines.
+- moment: when the rule applies. One of: "plan" (before planning, estimating or opening tickets), "build" (before writing code or drawing a screen), "deliver" (before reporting, handing over, writing to a client or claiming something is done), "deploy" (before touching a production system or its data), "always" (at any time). Pick the single best fit; "always" when none stands out.
 
 Only group findings when following one means following the other. Two habits that are merely related, or that happen in the same situation, stay apart.
 
