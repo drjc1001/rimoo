@@ -31,18 +31,44 @@ test('skillNameFrom: the frontmatter name, else my-workstyle', () => {
   assert.equal(skillNameFrom('---\nname: ../bad\n---\n'), 'my-workstyle');
 });
 
-test('installSkill: installed, then same; a different file is kept unless force', async () => {
-  await withConfig(async (env, dir) => {
-    const file = path.join(dir, 'skills', 'my-workstyle', 'SKILL.md');
-    assert.deepEqual(await installSkill({ skillMd: SKILL, name: 'my-workstyle', env }), { kind: 'installed', path: file });
-    assert.equal(await readFile(file, 'utf8'), SKILL);
-    assert.deepEqual(await installSkill({ skillMd: SKILL, name: 'my-workstyle', env }), { kind: 'same', path: file });
+const RULES = '# Rules\n\n1. **Rule.**\n';
+const FILES = { 'SKILL.md': SKILL, 'rules.md': RULES };
 
-    const newer = SKILL + '\n1. **New rule**\n';
-    assert.deepEqual(await installSkill({ skillMd: newer, name: 'my-workstyle', env }), { kind: 'exists', path: file });
-    assert.equal(await readFile(file, 'utf8'), SKILL);
-    assert.deepEqual(await installSkill({ skillMd: newer, name: 'my-workstyle', env, force: true }), { kind: 'installed', path: file });
-    assert.equal(await readFile(file, 'utf8'), newer);
+test('installSkill: both files written, then same; a different set is kept unless force', async () => {
+  await withConfig(async (env, dir) => {
+    const skill = path.join(dir, 'skills', 'my-workstyle');
+    const read = (f: string) => readFile(path.join(skill, f), 'utf8');
+    assert.deepEqual(await installSkill({ files: FILES, name: 'my-workstyle', env }), { kind: 'installed', path: skill });
+    assert.equal(await read('SKILL.md'), SKILL);
+    assert.equal(await read('rules.md'), RULES);
+    assert.deepEqual(await installSkill({ files: FILES, name: 'my-workstyle', env }), { kind: 'same', path: skill });
+
+    // Only rules.md differs: still exists, and neither file is touched.
+    const newer = { 'SKILL.md': SKILL + '\n1. **New rule**\n', 'rules.md': RULES + '2. **New rule.**\n' };
+    const onlyRules = { 'SKILL.md': SKILL, 'rules.md': newer['rules.md'] };
+    assert.deepEqual(await installSkill({ files: onlyRules, name: 'my-workstyle', env }), { kind: 'exists', path: skill });
+    assert.deepEqual(await installSkill({ files: newer, name: 'my-workstyle', env }), { kind: 'exists', path: skill });
+    assert.equal(await read('SKILL.md'), SKILL);
+    assert.equal(await read('rules.md'), RULES);
+
+    assert.deepEqual(await installSkill({ files: newer, name: 'my-workstyle', env, force: true }), { kind: 'installed', path: skill });
+    assert.equal(await read('SKILL.md'), newer['SKILL.md']);
+    assert.equal(await read('rules.md'), newer['rules.md']);
+  });
+});
+
+test('installSkill: an older install with SKILL.md only gets rules.md added; a different old SKILL.md is exists', async () => {
+  await withConfig(async (env, dir) => {
+    const skill = path.join(dir, 'skills', 'my-workstyle');
+    await mkdir(skill, { recursive: true });
+    await writeFile(path.join(skill, 'SKILL.md'), SKILL);
+    assert.deepEqual(await installSkill({ files: FILES, name: 'my-workstyle', env }), { kind: 'installed', path: skill });
+    assert.equal(await readFile(path.join(skill, 'rules.md'), 'utf8'), RULES);
+
+    await writeFile(path.join(skill, 'SKILL.md'), 'old 147 rules\n');
+    await rm(path.join(skill, 'rules.md'));
+    assert.deepEqual(await installSkill({ files: FILES, name: 'my-workstyle', env }), { kind: 'exists', path: skill });
+    await assert.rejects(readFile(path.join(skill, 'rules.md'), 'utf8'));
   });
 });
 
@@ -50,8 +76,8 @@ test('installSkill: another name goes to its own folder and leaves the first alo
   await withConfig(async (env, dir) => {
     await mkdir(path.join(dir, 'skills', 'my-workstyle'), { recursive: true });
     await writeFile(path.join(dir, 'skills', 'my-workstyle', 'SKILL.md'), 'mine\n');
-    const r = await installSkill({ skillMd: SKILL, name: 'foo', env });
-    assert.deepEqual(r, { kind: 'installed', path: path.join(dir, 'skills', 'foo', 'SKILL.md') });
+    const r = await installSkill({ files: FILES, name: 'foo', env });
+    assert.deepEqual(r, { kind: 'installed', path: path.join(dir, 'skills', 'foo') });
     assert.equal(await readFile(path.join(dir, 'skills', 'my-workstyle', 'SKILL.md'), 'utf8'), 'mine\n');
   });
 });

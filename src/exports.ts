@@ -5,6 +5,7 @@ import { CATEGORIES, type Category, type Evidence } from './runner.ts';
 import { localDate, type Stats } from './stats.ts';
 import { formatRemoved, redact, type Hit, type HitKind } from './privacy.ts';
 import { monthsBetween, renderCard, type CardSize } from './card.ts';
+import { DEFAULT_SKILL_NAME } from './install.ts';
 
 /** How many rules the summary lists. */
 export const TOP_RULES = 10;
@@ -12,6 +13,8 @@ export const TOP_RULES = 10;
 export const REPORT_QUOTES = 3;
 /** Patterns listed in share.txt. */
 export const SHARE_RULES = 5;
+/** Rules in SKILL.md; the rest are in rules.md. */
+export const TOP_SKILL_RULES = 12;
 
 export const CATEGORY_TITLE: Record<Category, string> = {
   communication: 'Communication',
@@ -51,6 +54,24 @@ const TEXT = {
       (keys.length > 0 ? `; strongest: ${keys.join(', ')}` : '') +
       '. Use it at the start of any coding session.',
     stop: '.',
+    skill: {
+      what: (rules: number, prompts: number) => `What this is: ${count(rules, 'rule', 'rules')} extracted from ${n(prompts)} Claude Code prompts by Rimoo.`,
+      how: (name: string) =>
+        `How to use: type /${name} at the start of a Claude Code session; Claude follows these rules for that session. ` +
+        'To have them always on in a project, copy CLAUDE.md into its root.',
+      more: 'More: the full list is in rules.md next to this file.',
+      full: (rules: number) => `Full list: rules.md (${count(rules, 'rule', 'rules')})`,
+    },
+    next: {
+      title: 'Next',
+      installed: (name: string) => `1. In a new Claude Code session, type /${name}: Claude follows these rules for that session.`,
+      notInstalled: (name: string) => `1. Run again with --install-skill, then type /${name} in a new Claude Code session.`,
+      exists: (name: string) =>
+        `1. /${name} is already installed with other rules. Run again with --install-skill --force-skill to replace it, or --skill-name <other> to keep both.`,
+      claudeMd: (file: string) => `2. To have them on all the time in one project, copy ${file} into that project's root folder.`,
+      png: (file: string) => `3. ${file} is ready to post; share.txt is the text version.`,
+      html: (file: string) => `3. Open ${file} in a browser and take a screenshot to post it; share.txt is the text version.`,
+    },
     share: {
       title: 'My AI coding workstyle',
       prompts: (v: number) => `${count(v, 'prompt', 'prompts')} analyzed`,
@@ -69,6 +90,23 @@ const TEXT = {
       (keys.length > 0 ? `，最明顯的是 ${keys.join('、')}` : '') +
       '。開始寫程式前載入。',
     stop: '。',
+    skill: {
+      what: (rules: number, prompts: number) => `這是什麼：Rimoo 從 ${n(prompts)} 則 Claude Code 歷史訊息抽出的 ${n(rules)} 條規則。`,
+      how: (name: string) =>
+        `怎麼用：在 Claude Code 對話開頭輸入 /${name}，這次對話 Claude 就照這些規則做。` +
+        '想在某個專案一直套用，把 CLAUDE.md 複製到那個專案的根目錄。',
+      more: '更多：全部規則在同一個資料夾的 rules.md。',
+      full: (rules: number) => `全部規則見 rules.md（${n(rules)} 條）`,
+    },
+    next: {
+      title: '接下來',
+      installed: (name: string) => `1. 開一個新的 Claude Code 對話，輸入 /${name}：這次對話 Claude 就照這些規則做。`,
+      notInstalled: (name: string) => `1. 加上 --install-skill 再跑一次，然後在新的 Claude Code 對話輸入 /${name}。`,
+      exists: (name: string) => `1. /${name} 已經裝了另一版規則。加上 --install-skill --force-skill 再跑一次就換掉；想兩份都留用 --skill-name 取別的名字。`,
+      claudeMd: (file: string) => `2. 想在某個專案一直套用，把 ${file} 複製到那個專案的根目錄。`,
+      png: (file: string) => `3. ${file} 可以直接貼出去；share.txt 是文字版。`,
+      html: (file: string) => `3. 用瀏覽器打開 ${file} 截圖就能貼出去；share.txt 是文字版。`,
+    },
     share: {
       title: '我跟 AI 寫程式的習慣',
       prompts: (v: number) => `分析了 ${n(v)} 則訊息`,
@@ -95,6 +133,8 @@ export interface ExportInput {
   lang?: Lang | undefined;
   /** share.html's size (default 1080×1080). */
   cardSize?: CardSize | undefined;
+  /** The skill name SKILL.md is written for (default my-workstyle). */
+  skillName?: string | undefined;
 }
 
 /** The §8 summary: prompts and projects, chunks analyzed, the top rules. Also the head of report.md. */
@@ -180,20 +220,58 @@ export function skillLine(r: MergedRule, lang: Lang): { lead: string; rest: stri
   return { lead: end(rule), rest: '' };
 }
 
-/** SKILL.md: a portable skill, ranked rules numbered with a bold lead, as the author's own jasper-taste. */
+function ruleLines(rules: MergedRule[], lang: Lang): string[] {
+  return rules.map((r, i) => {
+    const { lead, rest } = skillLine(r, lang);
+    return `${i + 1}. **${lead}**${rest === '' ? '' : ` ${rest}`}`;
+  });
+}
+
+/**
+ * SKILL.md: a portable skill as the author's own jasper-taste: what it is and how to use it, then the top
+ * TOP_SKILL_RULES rules numbered with a bold lead, then a pointer to rules.md for the rest.
+ */
 export function renderSkillMd(input: ExportInput): string {
   const { merged, stats } = input;
   const lang = rulesLang(merged.rules);
   const t = TEXT[lang];
+  const name = input.skillName ?? DEFAULT_SKILL_NAME;
   const rules = merged.rules.filter(isPortable);
   const description = t.description(stats.prompts, rules.slice(0, 3).map((r) => r.key)).replace(/"/g, "'");
-  const out = ['---', 'name: my-workstyle', `description: "${description}"`, '---', '', '# My workstyle', '', t.intro(stats.prompts), '', '## Rules', ''];
-  rules.forEach((r, i) => {
-    const { lead, rest } = skillLine(r, lang);
-    out.push(`${i + 1}. **${lead}**${rest === '' ? '' : ` ${rest}`}`);
-  });
-  out.push('');
+  const out = ['---', `name: ${name}`, `description: "${description}"`, '---', '', '# My workstyle', ''];
+  out.push(t.skill.what(rules.length, stats.prompts), t.skill.how(name), t.skill.more, '', '## Rules', '');
+  out.push(...ruleLines(rules.slice(0, TOP_SKILL_RULES), lang), '', t.skill.full(rules.length), '');
   return out.join('\n');
+}
+
+/** rules.md: every portable rule, in the same form as SKILL.md's. */
+export function renderRulesMd(input: ExportInput): string {
+  const { merged, stats } = input;
+  const lang = rulesLang(merged.rules);
+  const rules = merged.rules.filter(isPortable);
+  return ['# Rules', '', TEXT[lang].intro(stats.prompts), '', ...ruleLines(rules, lang), ''].join('\n');
+}
+
+/** The lines printed after the exports and the install step: how to use what was written. */
+export function formatNext(opts: {
+  lang: Lang;
+  name: string;
+  installed: boolean;
+  /** A different skill of this name is already there, so it was not written. */
+  exists?: boolean | undefined;
+  claudeMd: string;
+  /** share.png when it was made, else share.html. */
+  card: string;
+  png: boolean;
+}): string {
+  const t = TEXT[opts.lang].next;
+  return [
+    t.title,
+    opts.installed ? t.installed(opts.name) : opts.exists ? t.exists(opts.name) : t.notInstalled(opts.name),
+    t.claudeMd(opts.claudeMd),
+    opts.png ? t.png(opts.card) : t.html(opts.card),
+    '',
+  ].join('\n');
 }
 
 export interface Workstyle {
@@ -283,7 +361,7 @@ export function renderShareCard(input: ExportInput, opts: Pick<ExportOptions, 'a
   });
 }
 
-export const EXPORT_FILES = ['report.md', 'CLAUDE.md', 'SKILL.md', 'workstyle.json', 'share.txt', 'share.html'] as const;
+export const EXPORT_FILES = ['report.md', 'CLAUDE.md', 'SKILL.md', 'rules.md', 'workstyle.json', 'share.txt', 'share.html'] as const;
 export type ExportFile = (typeof EXPORT_FILES)[number];
 
 export interface ExportOptions {
@@ -293,6 +371,8 @@ export interface ExportOptions {
   onRemoved?: ((file: ExportFile, hits: Hit[]) => void) | undefined;
   /** Project names the gate removes (see privacy.ts `projectNames`). */
   names?: readonly string[] | undefined;
+  /** Told each file's text as written, after the gate. */
+  onWritten?: ((file: ExportFile, text: string) => void) | undefined;
 }
 
 /** What the gate removes from each file: report.md keeps the user's own quotes, so only keys and tokens go. */
@@ -300,6 +380,7 @@ const GATE: Record<ExportFile, readonly HitKind[] | 'all' | 'none'> = {
   'report.md': ['secret'],
   'CLAUDE.md': 'all',
   'SKILL.md': 'all',
+  'rules.md': 'all',
   'workstyle.json': 'all',
   'share.txt': 'all',
   // Gated string by string in renderShareCard, before the escape.
@@ -345,6 +426,7 @@ export async function writeExports(outDir: string, input: ExportInput, opts: Exp
     'report.md': renderReport(input),
     'CLAUDE.md': renderClaudeMd(input),
     'SKILL.md': renderSkillMd(input),
+    'rules.md': renderRulesMd(input),
     'workstyle.json': JSON.stringify(renderWorkstyle(input), null, 2) + '\n',
     'share.txt': renderShare(input),
     'share.html': renderShareCard(input, { allowPaths: opts.allowPaths, names: opts.names }),
@@ -355,6 +437,7 @@ export async function writeExports(outDir: string, input: ExportInput, opts: Exp
     const file = path.join(outDir, f);
     await writeFile(file, text, 'utf8');
     if (hits.length > 0) opts.onRemoved?.(f, hits);
+    opts.onWritten?.(f, text);
     files.push(file);
   }
   return files;

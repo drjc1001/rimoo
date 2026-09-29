@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { locateHistory, parseHistory } from './history.ts';
 import { computeStats } from './stats.ts';
@@ -22,7 +22,7 @@ import { findClaude, finishedChunk, runAll } from './runner.ts';
 import { estimateChunkTokens } from './tokens.ts';
 import { DEFAULT_SIMILARITY, forExport, groupRepeated } from './repeated.ts';
 import { planMerge, runMerge, type Merged } from './merge.ts';
-import { formatGate, formatTopRules, writeExports, type ExportFile } from './exports.ts';
+import { formatGate, formatNext, formatTopRules, rulesLang, writeExports, type ExportFile, type Lang } from './exports.ts';
 import { projectNames, type Hit } from './privacy.ts';
 import { attachTranscripts, loadTranscripts, transcriptsDir } from './transcripts.ts';
 import { DEFAULT_CARD_SIZE, findChrome, screenshotCard, type CardSize } from './card.ts';
@@ -54,13 +54,13 @@ export interface AnalyzeOptions {
   model?: string | undefined;
   /** Give short prompts Claude's previous message, read from the session transcripts next to the history. */
   withTranscripts?: boolean | undefined;
-  /** Keep file paths in CLAUDE.md, SKILL.md, workstyle.json, share.txt and share.html. */
+  /** Keep file paths in CLAUDE.md, SKILL.md, rules.md, workstyle.json, share.txt and share.html. */
   allowPaths?: boolean | undefined;
   /** 'en': share.txt and the share card in English, translating the top titles once with Claude Code. */
   lang?: 'en' | undefined;
   /** share.html and share.png size (default 1080×1080). */
   cardSize?: CardSize | undefined;
-  /** After the exports, install SKILL.md into Claude Code's skills without asking. */
+  /** After the exports, install SKILL.md and rules.md into Claude Code's skills without asking. */
   installSkill?: boolean | undefined;
   /** Skill name to install under (default: the name in SKILL.md, my-workstyle). */
   skillName?: string | undefined;
@@ -157,10 +157,11 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
       formatLargeHistory(manifest),
   );
   const saved = [display(outFile), display(repeatedFile), display(manifestFile)];
-  let exported = false;
+  /** Set once the exports are written: what the install step and the Next lines need. */
+  let exported: { lang: Lang; skill: Record<string, string>; png: boolean } | null = null;
   const code = await analyzeChunks();
   opts.stdout(formatSaved(saved));
-  if (exported) await installStep();
+  if (exported !== null) await installStep(exported);
   if (parsed.badLines.length > 0) {
     const shown = parsed.badLines.slice(0, 5).join(', ');
     const more = parsed.badLines.length > 5 ? `, … (${n(parsed.badLines.length)} total)` : '';
@@ -284,61 +285,81 @@ export async function runAnalyze(opts: AnalyzeOptions): Promise<number> {
       repeatedTop: top === undefined ? null : { label: top.label, count: top.count },
       lang: opts.lang,
       cardSize: opts.cardSize,
+      skillName: opts.skillName,
     };
+    const skill: Record<string, string> = {};
     const removed: { file: ExportFile; hits: Hit[] }[] = [];
     const files = await writeExports(outDir, input, {
       allowPaths: opts.allowPaths,
       names: projectNames(stats.perProject.map((p) => p.project)),
       onRemoved: (file, hits) => removed.push({ file, hits }),
+      onWritten: (file, text) => {
+        if (file === 'SKILL.md' || file === 'rules.md') skill[file] = text;
+      },
     });
     opts.stdout(formatTopRules(input) + '\n');
     if (removed.length > 0) opts.stdout(formatGate(removed) + '\n');
     saved.push(...files.map(display));
-    await sharePng(path.join(outDir, 'share.html'));
-    exported = true;
+    const png = await sharePng(path.join(outDir, 'share.html'));
+    exported = { lang: rulesLang(merged.rules), skill, png };
     return 0;
   }
 
   /**
-   * Offer SKILL.md as a Claude Code skill: --install-skill installs, a terminal is asked, anything else gets a hint.
-   * Never changes the exit code; CLAUDE.md is only pointed at, never copied.
+   * Offer SKILL.md and rules.md as a Claude Code skill: --install-skill installs, a terminal is asked. Then the Next
+   * lines. Never changes the exit code; CLAUDE.md is only pointed at, never copied.
    */
-  async function installStep(): Promise<void> {
+  async function installStep(done: { lang: Lang; skill: Record<string, string>; png: boolean }): Promise<void> {
     const tty = opts.stdin?.isTTY === true;
+    const files = done.skill;
+    const name = opts.skillName ?? skillNameFrom(files['SKILL.md'] ?? '');
+    let installed = false;
+    let exists = false;
     try {
-      const skillMd = await readFile(path.join(outDir, 'SKILL.md'), 'utf8');
-      const name = opts.skillName ?? skillNameFrom(skillMd);
+      // Without a terminal or --install-skill nothing is asked; the Next lines say how to install.
       let go = opts.installSkill === true;
-      if (!go && !tty) opts.stdout(INSTALL.hint(name));
-      else if (!go) go = await confirm(opts.stdin!, opts.stdout, INSTALL.question(name, tilde(skillsDir(env), env)));
+      if (!go && tty) go = await confirm(opts.stdin!, opts.stdout, INSTALL.question(name, tilde(skillsDir(env), env)));
       if (go) {
-        let result = await installSkill({ skillMd, name, env, force: opts.forceSkill === true });
-        const shown = tilde(result.path, env);
+        let result = await installSkill({ files, name, env, force: opts.forceSkill === true });
+        const shown = tilde(result.path, env) + path.sep;
         if (result.kind === 'exists' && tty && (await confirm(opts.stdin!, opts.stdout, INSTALL.replace(shown)))) {
-          result = await installSkill({ skillMd, name, env, force: true });
+          result = await installSkill({ files, name, env, force: true });
         }
+        installed = result.kind !== 'exists';
+        exists = result.kind === 'exists';
         opts.stdout(
-          result.kind === 'installed' ? INSTALL.installed(shown, name) : result.kind === 'same' ? INSTALL.same(shown, name) : INSTALL.exists(shown),
+          result.kind === 'installed' ? INSTALL.installed(shown) : result.kind === 'same' ? INSTALL.same(shown, name) : INSTALL.exists(shown),
         );
       }
     } catch (err) {
       opts.stdout(INSTALL.failed(err instanceof Error ? err.message : String(err)));
     }
-    opts.stdout(INSTALL.claudeMd(tilde(display(path.join(outDir, 'CLAUDE.md')), env)) + '\n');
+    const shown = (file: string): string => tilde(display(path.join(outDir, file)), env);
+    opts.stdout(
+      '\n' +
+        formatNext({
+          lang: done.lang,
+          name,
+          installed,
+          exists,
+          claudeMd: shown('CLAUDE.md'),
+          card: shown(done.png ? 'share.png' : 'share.html'),
+          png: done.png,
+        }) +
+        '\n',
+    );
   }
 
-  /** share.png from share.html with the Chrome found, or a line on how to make it by hand. */
-  async function sharePng(html: string): Promise<void> {
+  /** share.png from share.html with the Chrome found. True when it was made. */
+  async function sharePng(html: string): Promise<boolean> {
     const png = path.join(path.dirname(html), 'share.png');
     await rm(png, { force: true }); // an image of an earlier card must not stay next to this one
-    const hint = 'Open share.html in a browser and take a screenshot to get the image.\n';
+    // Without share.png the Next lines say to screenshot share.html.
     const chrome = await findChrome(env);
-    if (chrome === null) {
-      opts.stdout(hint + '\n');
-      return;
-    }
+    if (chrome === null) return false;
     const why = await screenshotCard(chrome, html, png, opts.cardSize ?? DEFAULT_CARD_SIZE, { env });
-    opts.stdout(why === null ? `Saved ${display(png)}\n\n` : `  Could not make share.png: ${why}\n${hint}\n`);
+    opts.stdout(why === null ? `Saved ${display(png)}\n\n` : `  Could not make share.png: ${why}\n\n`);
+    return why === null;
   }
 }
 

@@ -11,11 +11,13 @@ import {
   isPortable,
   renderClaudeMd,
   renderReport,
+  renderRulesMd,
   renderShare,
   renderSkillMd,
   renderWorkstyle,
   rulesLang,
   skillLine,
+  TOP_SKILL_RULES,
   writeExports,
   type ExportFile,
   type ExportInput,
@@ -119,17 +121,60 @@ test('CLAUDE.md: title with the date, rules only if high or medium said 3+ times
   );
 });
 
-test('SKILL.md: frontmatter, ranked rules with a bold lead, same selection as CLAUDE.md, no quotes', () => {
+test('SKILL.md: frontmatter, the three usage lines, ranked rules with a bold lead, same selection as CLAUDE.md, no quotes', () => {
   const md = renderSkillMd(input());
   assert.match(
     md,
-    /^---\nname: my-workstyle\ndescription: "從 24,045 則 Claude Code 歷史訊息整理出的個人工作風格，最明顯的是 key_1、key_2、key_3。開始寫程式前載入。"\n---\n\n# My workstyle\n\n以下是從我 24,045 則/,
+    /^---\nname: my-workstyle\ndescription: "從 24,045 則 Claude Code 歷史訊息整理出的個人工作風格，最明顯的是 key_1、key_2、key_3。開始寫程式前載入。"\n---\n\n# My workstyle\n\n這是什麼：Rimoo 從 24,045 則 Claude Code 歷史訊息抽出的 10 條規則。\n怎麼用：在 Claude Code 對話開頭輸入 \/my-workstyle，這次對話 Claude 就照這些規則做。想在某個專案一直套用，把 CLAUDE\.md 複製到那個專案的根目錄。\n更多：全部規則在同一個資料夾的 rules\.md。\n\n## Rules\n/,
   );
   assert.match(md, /\n## Rules\n\n1\. \*\*短句1。\*\* 結論先講，理由放後面。\n2\. \*\*短句2。\*\* 動手前先給計畫。\n3\. \*\*短句3。\*\* 回報用條列編號。\n4\. \*\*短句6。\*\* 沿用既有元件。\n/);
   // No title: the rule's own first clause, or all of it.
-  assert.match(md, /\n9\. \*\*卡住就換方法。\*\*\n10\. \*\*字數上限是硬上限。\*\*\n$/);
+  assert.match(md, /\n9\. \*\*卡住就換方法。\*\*\n10\. \*\*字數上限是硬上限。\*\*\n\n全部規則見 rules\.md（10 條）\n$/);
   assert.equal(md.match(/^\d+\. /gm)!.length, merged().rules.filter(isPortable).length);
   assert.doesNotMatch(md, /引句|方向定了|有測試才算/);
+  assert.match(renderSkillMd({ ...input(), skillName: 'team-style' }), /^---\nname: team-style\n[\s\S]*輸入 \/team-style，/);
+});
+
+/** The fixture plus eight more portable rules, so there are more than TOP_SKILL_RULES. */
+function many(): ExportInput {
+  const m = merged();
+  for (let i = 1; i <= 8; i++) m.rules.push(rule('planning', `多出來的第 ${i} 條。`, 'high', 2, 1));
+  return { ...input(), merged: m };
+}
+
+test('SKILL.md: exactly the top 12 portable rules in rank order, then the pointer to rules.md', () => {
+  const inp = many();
+  const portable = inp.merged.rules.filter(isPortable);
+  assert.equal(portable.length, 18);
+  const md = renderSkillMd(inp);
+  const leads = [...md.matchAll(/^\d+\. \*\*(.+?)\*\*/gm)].map((x) => x[1]);
+  assert.equal(leads.length, TOP_SKILL_RULES);
+  assert.deepEqual(leads, portable.slice(0, TOP_SKILL_RULES).map((r) => skillLine(r, 'zh').lead));
+  assert.match(md, /\n12\. \*\*短句14。\*\* 多出來的第 2 條。\n\n全部規則見 rules\.md（18 條）\n$/);
+  assert.doesNotMatch(md, /多出來的第 3 條/);
+  assert.match(md, /抽出的 18 條規則/);
+});
+
+test('rules.md: every portable rule in rank order, same form as SKILL.md', () => {
+  const inp = many();
+  const portable = inp.merged.rules.filter(isPortable);
+  const md = renderRulesMd(inp);
+  assert.match(md, /^# Rules\n\n以下是從我 24,045 則 Claude Code 歷史訊息抽出來的工作規則。\n\n1\. \*\*短句1。\*\* 結論先講，理由放後面。\n/);
+  assert.equal(md.match(/^\d+\. /gm)!.length, portable.length);
+  assert.match(md, /\n18\. \*\*短句20。\*\* 多出來的第 8 條。\n$/);
+  assert.doesNotMatch(md, /引句|方向定了|有測試才算/);
+});
+
+test('English rules: SKILL.md usage lines and the rules.md pointer in English', () => {
+  const m = many().merged;
+  m.rules = m.rules.map((r, i) => ({ ...r, rule: `Rule number ${i + 1}, stated plainly`, title: null }));
+  const md = renderSkillMd({ ...input(), merged: m });
+  assert.match(
+    md,
+    /\n# My workstyle\n\nWhat this is: 18 rules extracted from 24,045 Claude Code prompts by Rimoo\.\nHow to use: type \/my-workstyle at the start of a Claude Code session; Claude follows these rules for that session\. To have them always on in a project, copy CLAUDE\.md into its root\.\nMore: the full list is in rules\.md next to this file\.\n\n## Rules\n/,
+  );
+  assert.match(md, /\n\nFull list: rules\.md \(18 rules\)\n$/);
+  assert.match(renderRulesMd({ ...input(), merged: m }), /^# Rules\n\nThese rules were extracted from 24,045 prompts in my Claude Code history\.\n\n1\. \*\*Rule number 1\.\*\* Stated plainly\.\n/);
 });
 
 test('skillLine: title first, else split at the first comma, else the whole rule', () => {
@@ -167,17 +212,19 @@ test('English rules: English wording around them, quotes in double quotes', () =
   assert.match(renderSkillMd(inp), /\n1\. \*\*Rule number 1\.\*\* Stated plainly\.\n/);
 });
 
-test('writeExports: the four files, quotes only in report.md', async () => {
+test('writeExports: every file, quotes only in report.md', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'rimoo-export-'));
   try {
     const files = await writeExports(dir, input());
     assert.deepEqual(files, EXPORT_FILES.map((f) => path.join(dir, f)));
-    const [report, claude, skill, workstyle] = await Promise.all(files.map((f) => readFile(f, 'utf8')));
+    assert.equal(EXPORT_FILES.indexOf('rules.md'), EXPORT_FILES.indexOf('SKILL.md') + 1);
+    const [report, claude, skill, rules, workstyle] = await Promise.all(files.map((f) => readFile(f, 'utf8')));
     const quotes = merged().rules.flatMap((r) => r.evidence.slice(0, 3).map((e) => e.quote));
     for (const q of quotes) {
       assert.ok(report!.includes(q), q);
-      for (const other of [claude!, skill!, workstyle!]) assert.ok(!other.includes(q), q);
+      for (const other of [claude!, skill!, rules!, workstyle!]) assert.ok(!other.includes(q), q);
     }
+    assert.equal(rules, renderRulesMd(input()));
     assert.equal(JSON.parse(workstyle!).prompts, 24045);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -237,7 +284,7 @@ test('privacy gate: each file removed as its policy says, written anyway, lines 
     assert.deepEqual([...new Set(kindsOf('report.md'))], ['secret']);
 
     // The shared files lose all five.
-    for (const f of ['CLAUDE.md', 'SKILL.md', 'workstyle.json', 'share.txt']) {
+    for (const f of ['CLAUDE.md', 'SKILL.md', 'rules.md', 'workstyle.json', 'share.txt']) {
       for (const leak of ['sk-abcdefghijklmnop1234', '/data/repos', '/home/me', 'me@corp.example', 'corp.example/wiki', '0912-345-678']) {
         assert.ok(!text[f]!.includes(leak), `${f}: ${leak}`);
       }
@@ -245,6 +292,7 @@ test('privacy gate: each file removed as its policy says, written anyway, lines 
     }
     assert.deepEqual([...new Set(kindsOf('CLAUDE.md'))].sort(), ['email', 'path', 'phone', 'secret', 'url']);
     assert.deepEqual(kindsOf('share.txt'), ['path']); // share.txt shows the title only
+    assert.deepEqual([...new Set(kindsOf('rules.md'))].sort(), ['email', 'path', 'phone', 'secret', 'url']);
     assert.equal(JSON.parse(text['workstyle.json']!).rules[0].rule, '金鑰 [removed] 放 [removed]，寄 [removed]，看 [removed]，打 [removed]');
 
     // The reported line is the line the removal is on.
