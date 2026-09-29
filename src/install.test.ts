@@ -81,3 +81,30 @@ test('installSkill: another name goes to its own folder and leaves the first alo
     assert.equal(await readFile(path.join(dir, 'skills', 'my-workstyle', 'SKILL.md'), 'utf8'), 'mine\n');
   });
 });
+
+test('installSkill: checklists/ is made; a set where only a checklist differs is exists', async () => {
+  await withConfig(async (env, dir) => {
+    const skill = path.join(dir, 'skills', 'my-workstyle');
+    const PLAN = '# Before planning (plan)\n\n- [ ] **Plan first.**\n';
+    const set = { ...FILES, 'checklists/plan.md': PLAN, 'checklists/deploy.md': '# Before deploying (deploy)\n' };
+    assert.deepEqual(await installSkill({ files: set, name: 'my-workstyle', env }), { kind: 'installed', path: skill });
+    assert.equal(await readFile(path.join(skill, 'checklists', 'plan.md'), 'utf8'), PLAN);
+    assert.deepEqual(await installSkill({ files: set, name: 'my-workstyle', env }), { kind: 'same', path: skill });
+
+    const changed = { ...set, 'checklists/plan.md': PLAN + '- [ ] **Open a ticket first.**\n' };
+    assert.deepEqual(await installSkill({ files: changed, name: 'my-workstyle', env }), { kind: 'exists', path: skill });
+    assert.equal(await readFile(path.join(skill, 'checklists', 'plan.md'), 'utf8'), PLAN);
+    assert.deepEqual(await installSkill({ files: changed, name: 'my-workstyle', env, force: true }), { kind: 'installed', path: skill });
+    assert.equal(await readFile(path.join(skill, 'checklists', 'plan.md'), 'utf8'), changed['checklists/plan.md']);
+  });
+});
+
+test('installSkill: an install from before checklists gets them added when SKILL.md and rules.md are the same', async () => {
+  await withConfig(async (env, dir) => {
+    const skill = path.join(dir, 'skills', 'my-workstyle');
+    await installSkill({ files: FILES, name: 'my-workstyle', env });
+    const set = { ...FILES, 'checklists/plan.md': '# Before planning (plan)\n' };
+    assert.deepEqual(await installSkill({ files: set, name: 'my-workstyle', env }), { kind: 'installed', path: skill });
+    assert.equal(await readFile(path.join(skill, 'checklists', 'plan.md'), 'utf8'), set['checklists/plan.md']);
+  });
+});

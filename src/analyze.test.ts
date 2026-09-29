@@ -154,7 +154,7 @@ test('runAnalyze --yes: runs every chunk, prints progress and totals, saves find
     assert.doesNotMatch(out, /--sample/);
     assert.match(
       out,
-      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/rules\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\n\nNext\n1\. Run again with --install-skill, then type \/my-workstyle in a new Claude Code session\.\n2\. To have them on all the time in one project, copy rimoo-out\/CLAUDE\.md into that project's root folder\.\n3\. Open rimoo-out\/share\.html in a browser and take a screenshot to post it; share\.txt is the text version\.\n\n$/,
+      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/rules\.md, rimoo-out\/checklists\/, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\n\nNext\n1\. Run again with --install-skill, then type \/my-workstyle in a new Claude Code session\.\n2\. To have them on all the time in one project, copy rimoo-out\/CLAUDE\.md into that project's root folder\.\n3\. Open rimoo-out\/share\.html in a browser and take a screenshot to post it; share\.txt is the text version\.\n\n$/,
     );
     assert.deepEqual((await readCalls(log)).map((x) => x.part), [1, 2, 3]);
     const files = (await readdir(path.join(dir, 'rimoo-out', 'findings'))).sort();
@@ -295,7 +295,7 @@ test('runAnalyze: chunks done → merge → four exports, the §8 summary and Sa
     assert.match(out, /\n6\. 不要客套話。（出現於 1 段、2 則）\n\nSaved /);
     assert.match(
       out,
-      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/rules\.md, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\n\n接下來\n1\. 加上 --install-skill 再跑一次，然後在新的 Claude Code 對話輸入 \/my-workstyle。\n2\. 想在某個專案一直套用，把 rimoo-out\/CLAUDE\.md 複製到那個專案的根目錄。\n3\. 用瀏覽器打開 rimoo-out\/share\.html 截圖就能貼出去；share\.txt 是文字版。\n\n$/,
+      /Saved rimoo-out\/stats\.json, rimoo-out\/repeated\.json, rimoo-out\/manifest\.json, rimoo-out\/findings\/, rimoo-out\/report\.md, rimoo-out\/CLAUDE\.md, rimoo-out\/SKILL\.md, rimoo-out\/rules\.md, rimoo-out\/checklists\/, rimoo-out\/workstyle\.json, rimoo-out\/share\.txt and rimoo-out\/share\.html\n\n接下來\n1\. 加上 --install-skill 再跑一次，然後在新的 Claude Code 對話輸入 \/my-workstyle。\n2\. 想在某個專案一直套用，把 rimoo-out\/CLAUDE\.md 複製到那個專案的根目錄。\n3\. 用瀏覽器打開 rimoo-out\/share\.html 截圖就能貼出去；share\.txt 是文字版。\n\n$/,
     );
     const o = path.join(dir, 'rimoo-out');
     const [report, claudeMd, skill, workstyle] = await Promise.all(
@@ -319,7 +319,7 @@ test('runAnalyze: chunks done → merge → four exports, the §8 summary and Sa
       0,
       again.err.join(''),
     );
-    assert.match(again.out.join(''), /Findings unchanged since the last merge; kept its 6 rules\. Pass --force to merge again\.\n/);
+    assert.match(again.out.join(''), /Findings unchanged since the last merge; kept its 6 rules\. Pass --remerge to merge again\.\n/);
     assert.match(again.out.join(''), /Your strongest working patterns:/);
     assert.equal((await readMergeCalls(mergeLog)).length, 3);
 
@@ -331,6 +331,39 @@ test('runAnalyze: chunks done → merge → four exports, the §8 summary and Sa
     );
     assert.equal((await readCalls(log)).length, 3);
     assert.equal((await readMergeCalls(mergeLog)).length, 4); // the fake's chunk findings are all communication
+  });
+});
+
+test('runAnalyze --remerge: with every chunk done only the merge runs again, one call per category; a plain rerun calls nothing', { skip: posixOnly }, async () => {
+  await withFindings(async ({ dir, history, env, log, mergeLog }) => {
+    const base = { historyPath: history, chunkSize: 2, yes: true, env, cwd: dir, stdin: pipe() };
+    const first = capture();
+    assert.equal(await runAnalyze({ ...base, stdout: first.stdout, stderr: first.stderr }), 0, first.err.join(''));
+    assert.equal((await readMergeCalls(mergeLog)).length, 3);
+
+    // Plain rerun: nothing is sent.
+    const plain = capture();
+    assert.equal(await runAnalyze({ ...base, stdout: plain.stdout, stderr: plain.stderr }), 0);
+    assert.match(plain.out.join(''), /Pass --remerge to merge again\./);
+    assert.equal((await readMergeCalls(mergeLog)).length, 3);
+    assert.deepEqual(await readCalls(log), []);
+
+    // A merged.json from before moments: --remerge merges again (3 categories), no chunk is analyzed again.
+    const file = path.join(dir, 'rimoo-out', 'merged.json');
+    const old = JSON.parse(await readFile(file, 'utf8')) as { rules: Record<string, unknown>[] };
+    for (const r of old.rules) delete r.moment;
+    await writeFile(file, JSON.stringify(old, null, 2) + '\n');
+    const re = capture();
+    assert.equal(await runAnalyze({ ...base, remerge: true, stdout: re.stdout, stderr: re.stderr }), 0, re.err.join(''));
+    assert.match(re.out.join(''), /All 3 chunks already have findings/);
+    assert.match(re.out.join(''), /7 findings · 3 calls \(one per category\)/);
+    assert.deepEqual(await readCalls(log), []);
+    const calls = await readMergeCalls(mergeLog);
+    assert.equal(calls.length, 6);
+    assert.deepEqual(calls.slice(3).map((c) => c.category).sort(), ['communication', 'planning', 'testing']);
+    const merged = JSON.parse(await readFile(file, 'utf8')) as { rules: { moment: string }[] };
+    assert.ok(merged.rules.some((r) => r.moment === 'deliver'));
+    assert.match(await readFile(path.join(dir, 'rimoo-out', 'checklists', 'deliver.md'), 'utf8'), /^# 交付前（deliver）\n\n逐項看過再動手；沒過的先處理。\n\n- \[ \] \*\*/);
   });
 });
 
@@ -480,12 +513,12 @@ test('runAnalyze --install-skill: installs without a terminal, exit 0; the next 
     const c = capture();
     assert.equal(await runAnalyze({ ...base, stdin: pipe(), stdout: c.stdout, stderr: c.stderr }), 0, c.err.join(''));
     const skill = path.join(env.CLAUDE_CONFIG_DIR!, 'skills', 'my-workstyle');
-    for (const f of ['SKILL.md', 'rules.md']) {
+    for (const f of ['SKILL.md', 'rules.md', 'checklists/plan.md', 'checklists/build.md', 'checklists/deliver.md', 'checklists/deploy.md']) {
       assert.equal(await readFile(path.join(skill, f), 'utf8'), await readFile(path.join(dir, 'rimoo-out', f), 'utf8'), f);
     }
     const out = c.out.join('');
     assert.ok(out.includes(`Installed ${skill}${path.sep}\n`), out);
-    assert.match(out, /\n接下來\n1\. 開一個新的 Claude Code 對話，輸入 \/my-workstyle：這次對話 Claude 就照這些規則做。\n2\. 想在某個專案一直套用，把 rimoo-out\/CLAUDE\.md 複製到那個專案的根目錄。\n3\. /);
+    assert.match(out, /\n接下來\n1\. 開一個新的 Claude Code 對話，輸入 \/my-workstyle（規劃前輸入 \/my-workstyle plan）：這次對話 Claude 就照這些規則做。\n2\. 想在某個專案一直套用，把 rimoo-out\/CLAUDE\.md 複製到那個專案的根目錄。\n3\. /);
 
     const again = capture();
     assert.equal(await runAnalyze({ ...base, stdin: pipe(), stdout: again.stdout, stderr: again.stderr }), 0);
@@ -512,9 +545,11 @@ test('runAnalyze --skill-name foo installs under foo/', { skip: posixOnly }, asy
     });
     assert.equal(code, 0, c.err.join(''));
     assert.deepEqual(await readdir(path.join(env.CLAUDE_CONFIG_DIR!, 'skills')), ['foo']);
-    assert.deepEqual((await readdir(path.join(env.CLAUDE_CONFIG_DIR!, 'skills', 'foo'))).sort(), ['SKILL.md', 'rules.md']);
-    assert.match(c.out.join(''), /\n1\. 開一個新的 Claude Code 對話，輸入 \/foo：/);
-    assert.match(await readFile(path.join(dir, 'rimoo-out', 'SKILL.md'), 'utf8'), /^---\nname: foo\n[\s\S]*輸入 \/foo，/);
+    const foo = path.join(env.CLAUDE_CONFIG_DIR!, 'skills', 'foo');
+    assert.deepEqual((await readdir(foo)).sort(), ['SKILL.md', 'checklists', 'rules.md']);
+    assert.deepEqual((await readdir(path.join(foo, 'checklists'))).sort(), ['build.md', 'deliver.md', 'deploy.md', 'plan.md']);
+    assert.match(c.out.join(''), /\n1\. 開一個新的 Claude Code 對話，輸入 \/foo（規劃前輸入 \/foo plan）：/);
+    assert.match(await readFile(path.join(dir, 'rimoo-out', 'SKILL.md'), 'utf8'), /^---\nname: foo\n[\s\S]*輸入 \/foo；/);
   });
 });
 

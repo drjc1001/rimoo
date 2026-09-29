@@ -110,6 +110,7 @@ test('escapeHtml, monthsBetween, parseCardSize', () => {
 function rule(i: number, over: Partial<MergedRule> = {}): MergedRule {
   return {
     key: `key_${i}`, category: 'communication', title: `短句${i}`, rule: `規則${i}。`, confidence: 'high',
+    moment: 'always',
     frequency: 50 - i, chunks: 3, members: [i], evidence: [], trigger: null, ...over,
   };
 }

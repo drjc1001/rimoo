@@ -51,6 +51,7 @@ These files in `./rimoo-out`:
 - `CLAUDE.md`: your rules as instructions, ready to drop into a project.
 - `SKILL.md`: your top 12 rules as a portable skill, with a short note on how to use it.
 - `rules.md`: every rule, installed next to `SKILL.md`.
+- `checklists/plan.md`, `build.md`, `deliver.md`, `deploy.md`: the rules for each step, as a checklist. Type `/my-workstyle plan` before planning to go through that one.
 - `workstyle.json`: the rules in a machine-readable form.
 - `share.txt`: a short summary to paste into a README or a LinkedIn post.
 - `share.html` and, when Chrome is installed, `share.png`: a 1080×1080 card for LinkedIn or X. Pass `--lang en` for English titles.
@@ -75,9 +76,9 @@ Found with Rimoo — npx rimoo analyze
 
 ### Use it
 
-When the run ends, Rimoo asks whether to install `SKILL.md` and `rules.md` as `/my-workstyle` in Claude Code (`--install-skill` installs without asking), then prints the next steps:
+When the run ends, Rimoo asks whether to install `SKILL.md`, `rules.md` and the checklists as `/my-workstyle` in Claude Code (`--install-skill` installs without asking), then prints the next steps:
 
-1. In a new Claude Code session, type `/my-workstyle`: Claude follows these rules for that session.
+1. In a new Claude Code session, type `/my-workstyle` (or `/my-workstyle plan` before planning): Claude follows these rules for that session.
 2. To have them on all the time in one project, copy `rimoo-out/CLAUDE.md` into that project's root folder. Rimoo never copies it for you.
 3. `rimoo-out/share.png` is ready to post; `share.txt` is the text version.
 
@@ -113,6 +114,7 @@ Options:
   --yes              run Claude Code without asking first
   --concurrency <n>  chunks to analyze at once, 1 to 4 (default: 1)
   --force            analyze chunks and merge again even if already done
+  --remerge          merge the findings into rules again (for example after an update), without analyzing the chunks again
   --model <name>     model for Claude Code to use, passed to claude --model as is
   --with-transcripts give short prompts Claude's previous message, read from the session
                      transcripts next to the history (more to analyze, so it costs more)

@@ -55,6 +55,7 @@ Run the Rimoo CLI on the user's Claude Code history. Follow the steps in order. 
      - `~/.rimoo/CLAUDE.md`
      - `~/.rimoo/SKILL.md`
      - `~/.rimoo/rules.md`
+     - `~/.rimoo/checklists/` (plan, build, deliver, deploy)
      - `~/.rimoo/workstyle.json`
      - `~/.rimoo/share.txt`
      - `~/.rimoo/share.png` (`~/.rimoo/share.html` when Chrome is not installed)

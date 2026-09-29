@@ -9,6 +9,8 @@ import {
   formatTopRules,
   gate,
   isPortable,
+  CHECKLIST_MOMENTS,
+  renderChecklist,
   renderClaudeMd,
   renderReport,
   renderRulesMd,
@@ -35,6 +37,7 @@ function rule(category: Category, text: string, confidence: Confidence, frequenc
     title: `短句${k}`,
     rule: text,
     confidence,
+    moment: 'always',
     frequency,
     chunks,
     members: [k],
@@ -44,20 +47,23 @@ function rule(category: Category, text: string, confidence: Confidence, frequenc
   };
 }
 
-/** Twelve ranked rules in Chinese, over five categories; debugging and architecture have none. */
+/**
+ * Twelve ranked rules in Chinese, over five categories; debugging and architecture have none. Moments: plan 2, 4
+ * (not portable), 8; build 6, 9, 10; deliver 1, 3, 5 (low); deploy none; the rest always.
+ */
 function merged(): Merged {
   k = 0;
   const rules = [
-    rule('communication', '結論先講，理由放後面。', 'high', 40, 5, { trigger: '看到長篇回報後' }),
-    rule('planning', '動手前先給計畫。', 'high', 30, 4),
-    rule('communication', '回報用條列編號。', 'medium', 3, 4),
-    rule('ai_collaboration', '方向定了就一路做完。', 'medium', 2, 3),
-    rule('testing', '有測試才算做完。', 'low', 20, 3),
-    rule('implementation', '沿用既有元件。', 'high', 9, 2),
+    rule('communication', '結論先講，理由放後面。', 'high', 40, 5, { trigger: '看到長篇回報後', moment: 'deliver' }),
+    rule('planning', '動手前先給計畫。', 'high', 30, 4, { moment: 'plan' }),
+    rule('communication', '回報用條列編號。', 'medium', 3, 4, { moment: 'deliver' }),
+    rule('ai_collaboration', '方向定了就一路做完。', 'medium', 2, 3, { moment: 'plan' }),
+    rule('testing', '有測試才算做完。', 'low', 20, 3, { moment: 'deliver' }),
+    rule('implementation', '沿用既有元件。', 'high', 9, 2, { moment: 'build' }),
     rule('communication', '不要客套話。', 'high', 8, 2),
-    rule('planning', '先開票再動工。', 'high', 7, 2),
-    rule('testing', '先重現再修。', 'medium', 6, 1),
-    rule('implementation', '後端先行。', 'high', 5, 1),
+    rule('planning', '先開票再動工。', 'high', 7, 2, { moment: 'plan' }),
+    rule('testing', '先重現再修。', 'medium', 6, 1, { moment: 'build' }),
+    rule('implementation', '後端先行。', 'high', 5, 1, { moment: 'build' }),
     rule('ai_collaboration', '卡住就換方法。', 'high', 4, 1, { title: null }),
     rule('communication', '字數上限是硬上限', 'high', 3, 1, { title: null }),
   ];
@@ -125,14 +131,14 @@ test('SKILL.md: frontmatter, the three usage lines, ranked rules with a bold lea
   const md = renderSkillMd(input());
   assert.match(
     md,
-    /^---\nname: my-workstyle\ndescription: "從 24,045 則 Claude Code 歷史訊息整理出的個人工作風格，最明顯的是 key_1、key_2、key_3。開始寫程式前載入。"\n---\n\n# My workstyle\n\n這是什麼：Rimoo 從 24,045 則 Claude Code 歷史訊息抽出的 10 條規則。\n怎麼用：在 Claude Code 對話開頭輸入 \/my-workstyle，這次對話 Claude 就照這些規則做。想在某個專案一直套用，把 CLAUDE\.md 複製到那個專案的根目錄。\n更多：全部規則在同一個資料夾的 rules\.md。\n\n## Rules\n/,
+    /^---\nname: my-workstyle\ndescription: "從 24,045 則 Claude Code 歷史訊息整理出的個人工作風格，最明顯的是 key_1、key_2、key_3。開始寫程式前載入。"\nargument-hint: "\[plan\|build\|deliver\|deploy\]"\n---\n\n# My workstyle\n\n這是什麼：Rimoo 從 24,045 則 Claude Code 歷史訊息抽出的 10 條規則。\n怎麼用：在 Claude Code 對話開頭輸入 \/my-workstyle；要規劃、動手、交付或上線前，輸入 \/my-workstyle plan、build、deliver 或 deploy，逐項看過那一步的清單。想在某個專案一直套用，把 CLAUDE\.md 複製到那個專案的根目錄。\n更多：全部規則在同一個資料夾的 rules\.md。\n\n## Rules\n/,
   );
   assert.match(md, /\n## Rules\n\n1\. \*\*短句1。\*\* 結論先講，理由放後面。\n2\. \*\*短句2。\*\* 動手前先給計畫。\n3\. \*\*短句3。\*\* 回報用條列編號。\n4\. \*\*短句6。\*\* 沿用既有元件。\n/);
   // No title: the rule's own first clause, or all of it.
-  assert.match(md, /\n9\. \*\*卡住就換方法。\*\*\n10\. \*\*字數上限是硬上限。\*\*\n\n全部規則見 rules\.md（10 條）\n$/);
+  assert.match(md, /\n9\. \*\*卡住就換方法。\*\*\n10\. \*\*字數上限是硬上限。\*\*\n\n## When invoked with an argument\n\nIf \$ARGUMENTS is one of plan, build, deliver or deploy, read checklists\/\$ARGUMENTS\.md in this folder and go through every line before acting\. Any other text is the task to do under these rules\.\n\n全部規則見 rules\.md（10 條）\n$/);
   assert.equal(md.match(/^\d+\. /gm)!.length, merged().rules.filter(isPortable).length);
   assert.doesNotMatch(md, /引句|方向定了|有測試才算/);
-  assert.match(renderSkillMd({ ...input(), skillName: 'team-style' }), /^---\nname: team-style\n[\s\S]*輸入 \/team-style，/);
+  assert.match(renderSkillMd({ ...input(), skillName: 'team-style' }), /^---\nname: team-style\n[\s\S]*輸入 \/team-style；[\s\S]*輸入 \/team-style plan、/);
 });
 
 /** The fixture plus eight more portable rules, so there are more than TOP_SKILL_RULES. */
@@ -150,7 +156,7 @@ test('SKILL.md: exactly the top 12 portable rules in rank order, then the pointe
   const leads = [...md.matchAll(/^\d+\. \*\*(.+?)\*\*/gm)].map((x) => x[1]);
   assert.equal(leads.length, TOP_SKILL_RULES);
   assert.deepEqual(leads, portable.slice(0, TOP_SKILL_RULES).map((r) => skillLine(r, 'zh').lead));
-  assert.match(md, /\n12\. \*\*短句14。\*\* 多出來的第 2 條。\n\n全部規則見 rules\.md（18 條）\n$/);
+  assert.match(md, /\n12\. \*\*短句14。\*\* 多出來的第 2 條。\n\n## When invoked with an argument\n\n[^\n]+\n\n全部規則見 rules\.md（18 條）\n$/);
   assert.doesNotMatch(md, /多出來的第 3 條/);
   assert.match(md, /抽出的 18 條規則/);
 });
@@ -171,10 +177,58 @@ test('English rules: SKILL.md usage lines and the rules.md pointer in English', 
   const md = renderSkillMd({ ...input(), merged: m });
   assert.match(
     md,
-    /\n# My workstyle\n\nWhat this is: 18 rules extracted from 24,045 Claude Code prompts by Rimoo\.\nHow to use: type \/my-workstyle at the start of a Claude Code session; Claude follows these rules for that session\. To have them always on in a project, copy CLAUDE\.md into its root\.\nMore: the full list is in rules\.md next to this file\.\n\n## Rules\n/,
+    /\n# My workstyle\n\nWhat this is: 18 rules extracted from 24,045 Claude Code prompts by Rimoo\.\nHow to use: type \/my-workstyle at the start of a Claude Code session, or \/my-workstyle plan, build, deliver or deploy right before that step to go through its checklist\. To have them always on in a project, copy CLAUDE\.md into its root\.\nMore: the full list is in rules\.md next to this file\.\n\n## Rules\n/,
   );
-  assert.match(md, /\n\nFull list: rules\.md \(18 rules\)\n$/);
+  assert.match(md, /\n\n## When invoked with an argument\n\n[^\n]+\n\nFull list: rules\.md \(18 rules\)\n$/);
   assert.match(renderRulesMd({ ...input(), merged: m }), /^# Rules\n\nThese rules were extracted from 24,045 prompts in my Claude Code history\.\n\n1\. \*\*Rule number 1\.\*\* Stated plainly\.\n/);
+});
+
+test('checklists: each has only its own portable rules, in rank order, as tick boxes; an empty one says so', () => {
+  const inp = input();
+  assert.equal(
+    renderChecklist(inp, 'plan'),
+    '# 規劃前（plan）\n\n逐項看過再動手；沒過的先處理。\n\n- [ ] **短句2。** 動手前先給計畫。\n- [ ] **短句8。** 先開票再動工。\n',
+  );
+  assert.equal(
+    renderChecklist(inp, 'build'),
+    '# 動手前（build）\n\n逐項看過再動手；沒過的先處理。\n\n- [ ] **短句6。** 沿用既有元件。\n- [ ] **短句9。** 先重現再修。\n- [ ] **短句10。** 後端先行。\n',
+  );
+  // 有測試才算做完 is deliver too, but low: not in.
+  assert.equal(
+    renderChecklist(inp, 'deliver'),
+    '# 交付前（deliver）\n\n逐項看過再動手；沒過的先處理。\n\n- [ ] **短句1。** 結論先講，理由放後面。\n- [ ] **短句3。** 回報用條列編號。\n',
+  );
+  assert.equal(renderChecklist(inp, 'deploy'), '# 上線前（deploy）\n\n這個時機還沒有規則。\n');
+  // Every portable rule that is not always is in exactly one checklist.
+  const all = CHECKLIST_MOMENTS.map((m) => renderChecklist(inp, m)).join('');
+  for (const r of merged().rules.filter(isPortable)) {
+    assert.equal(all.includes(r.rule), r.moment !== 'always', r.rule);
+  }
+
+  const m = merged();
+  m.rules = m.rules.map((r, i) => ({ ...r, rule: `Rule number ${i + 1}, stated plainly`, title: null }));
+  const en = { ...input(), merged: m };
+  assert.equal(
+    renderChecklist(en, 'plan'),
+    '# Before planning (plan)\n\nGo through every line before you start; fix what fails first.\n\n- [ ] **Rule number 2.** Stated plainly.\n- [ ] **Rule number 8.** Stated plainly.\n',
+  );
+  assert.match(renderChecklist(en, 'build'), /^# Before building \(build\)\n/);
+  assert.match(renderChecklist(en, 'deliver'), /^# Before delivering \(deliver\)\n/);
+  assert.equal(renderChecklist(en, 'deploy'), '# Before deploying (deploy)\n\nNo rule found for this moment yet.\n');
+});
+
+test('writeExports: the four checklists in checklists/, written as rendered', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'rimoo-export-'));
+  try {
+    const written: string[] = [];
+    await writeExports(dir, input(), { onWritten: (f) => written.push(f) });
+    for (const m of CHECKLIST_MOMENTS) {
+      assert.equal(await readFile(path.join(dir, 'checklists', `${m}.md`), 'utf8'), renderChecklist(input(), m));
+      assert.ok(written.includes(`checklists/${m}.md`), m);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('skillLine: title first, else split at the first comma, else the whole rule', () => {
@@ -218,11 +272,12 @@ test('writeExports: every file, quotes only in report.md', async () => {
     const files = await writeExports(dir, input());
     assert.deepEqual(files, EXPORT_FILES.map((f) => path.join(dir, f)));
     assert.equal(EXPORT_FILES.indexOf('rules.md'), EXPORT_FILES.indexOf('SKILL.md') + 1);
-    const [report, claude, skill, rules, workstyle] = await Promise.all(files.map((f) => readFile(f, 'utf8')));
+    const text = Object.fromEntries(await Promise.all(EXPORT_FILES.map(async (f) => [f, await readFile(path.join(dir, f), 'utf8')] as const)));
+    const [report, claude, skill, rules, workstyle] = ['report.md', 'CLAUDE.md', 'SKILL.md', 'rules.md', 'workstyle.json'].map((f) => text[f]);
     const quotes = merged().rules.flatMap((r) => r.evidence.slice(0, 3).map((e) => e.quote));
     for (const q of quotes) {
       assert.ok(report!.includes(q), q);
-      for (const other of [claude!, skill!, rules!, workstyle!]) assert.ok(!other.includes(q), q);
+      for (const [f, other] of Object.entries(text)) if (f !== 'report.md') assert.ok(!other.includes(q), `${f}: ${q}`);
     }
     assert.equal(rules, renderRulesMd(input()));
     assert.equal(JSON.parse(workstyle!).prompts, 24045);
@@ -275,7 +330,7 @@ test('privacy gate: each file removed as its policy says, written anyway, lines 
   try {
     const removed: { file: ExportFile; hits: Hit[] }[] = [];
     const files = await writeExports(dir, leaky(), { onRemoved: (file, hits) => removed.push({ file, hits }) });
-    const text = Object.fromEntries(await Promise.all(files.map(async (f) => [path.basename(f), await readFile(f, 'utf8')] as const)));
+    const text = Object.fromEntries(await Promise.all(files.map(async (f) => [path.relative(dir, f).split(path.sep).join('/'), await readFile(f, 'utf8')] as const)));
     const kindsOf = (file: string): string[] => removed.find((r) => r.file === file)?.hits.map((h) => h.kind) ?? [];
 
     // report.md keeps the user's own words: only the key goes.
@@ -284,7 +339,7 @@ test('privacy gate: each file removed as its policy says, written anyway, lines 
     assert.deepEqual([...new Set(kindsOf('report.md'))], ['secret']);
 
     // The shared files lose all five.
-    for (const f of ['CLAUDE.md', 'SKILL.md', 'rules.md', 'workstyle.json', 'share.txt']) {
+    for (const f of ['CLAUDE.md', 'SKILL.md', 'rules.md', 'checklists/deliver.md', 'workstyle.json', 'share.txt']) {
       for (const leak of ['sk-abcdefghijklmnop1234', '/data/repos', '/home/me', 'me@corp.example', 'corp.example/wiki', '0912-345-678']) {
         assert.ok(!text[f]!.includes(leak), `${f}: ${leak}`);
       }

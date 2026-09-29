@@ -211,6 +211,14 @@ test('main: --lang only takes en, --card-size must be WIDTHxHEIGHT; both listed 
   assert.ok(HELP.includes('--card-size <WxH>'));
 });
 
+test('parseArgs: --remerge is a flag that takes no value, in the help', () => {
+  assert.deepEqual(parseArgs(['analyze', '--remerge', '--yes']).options, { remerge: true, yes: true });
+  assert.deepEqual(parseArgs(['analyze', '--remerge=1']).errors, ['Option --remerge takes no value']);
+  assert.ok(
+    HELP.includes('  --remerge          merge the findings into rules again (for example after an update), without analyzing the chunks again\n'),
+  );
+});
+
 test('parseArgs/main: --install-skill and --force-skill are flags, --skill-name takes a skill name; all in the help', async () => {
   assert.deepEqual(parseArgs(['analyze', '--install-skill', '--force-skill', '--skill-name', 'foo-2']).options, {
     'install-skill': true,
